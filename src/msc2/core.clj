@@ -18,6 +18,8 @@
 
 (declare inject-operation enqueue-input)
 
+(def ^:const max-sequence-length 4)
+
 (def ^:const default-config
   "Minimal configuration derived from MSC2's Config.h defaults. The values are
   placeholders and mainly document the knobs that later milestones will honor."
@@ -85,21 +87,25 @@
        (within-gap? earlier later gap)))
 
 (defn- sequence-candidates [events]
-  (->> events
-       (partition 2 1)
-       (keep (fn [[a b]]
-               (when (and (= :belief (:type a))
-                          (= :belief (:type b))
-                          (not (op-event? a))
-                          (op-event? b))
-                 (let [{:keys [stamp creation-time]} (stamp/derive-stamp a b)
-                       truth (truth/intersection (:truth a) (:truth b))]
-                   {:type :belief
-                    :term (term/seq-term (:term a) (:term b))
-                    :truth truth
-                    :stamp stamp
-                    :creation-time creation-time
-                    :occurrence-time (:occurrence-time b)}))))))
+  (let [limited (->> events (take-last max-sequence-length) vec)]
+    (for [[idx ev] (map-indexed vector limited)
+          :when (and (= :belief (:type ev))
+                     (not (op-event? ev)))
+          [idx2 op-ev] (map-indexed vector limited)
+          :when (and (> idx2 idx)
+                     (<= (- idx2 idx) (dec max-sequence-length))
+                     (= :belief (:type op-ev))
+                     (op-event? op-ev))
+          :when (every? (comp not op-event?)
+                        (subvec limited (inc idx) idx2))]
+      (let [{:keys [stamp creation-time]} (stamp/derive-stamp ev op-ev)
+            truth (truth/intersection (:truth ev) (:truth op-ev))]
+        {:type :belief
+         :term (term/seq-term (:term ev) (:term op-ev))
+         :truth truth
+         :stamp stamp
+         :creation-time creation-time
+         :occurrence-time (:occurrence-time op-ev)}))))
 
 (defn- sequence-derivations [fifo event gap]
   (let [prior (->> (butlast (or (seq (fifo/events fifo)) []))

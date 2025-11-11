@@ -1,5 +1,6 @@
 (ns msc2.shell
   "Shell that accepts either EDN maps or a small subset of `.nal` sentences."
+  (:gen-class)
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [msc2.core :as core]

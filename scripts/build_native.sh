@@ -24,6 +24,7 @@ native-image \
   --report-unsupported-elements-at-runtime \
   --initialize-at-build-time \
   --no-fallback \
+  -H:+UnlockExperimentalVMOptions \
   -jar "$JAR" \
   -H:Name="$OUTPUT" \
   "$@"
