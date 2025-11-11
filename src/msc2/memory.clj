@@ -15,6 +15,12 @@
                           :derived []
                           :tables {}})))
 
+(defn- boost-priority [concept time]
+  (-> concept
+      (assoc :priority 1.0
+             :last-used time)
+      (update :use-count (fnil inc 0))))
+
 (defn record-spike [state event]
   (let [term (:term event)
         key (case (:type event)
@@ -23,7 +29,9 @@
     (update state :concepts
             (fn [concepts]
               (let [concepts (ensure-concept concepts term)]
-                (assoc-in concepts [term key] event))))))
+                (-> concepts
+                    (assoc-in [term key] event)
+                    (update term boost-priority (:creation-time event))))))))
 
 (defn- clamp-derived [entries]
   (if (> (count entries) max-derived)
@@ -56,7 +64,8 @@
                                      (conj implication)
                                      clamp-derived)))
                     (update-in [target :tables]
-                               #(update-table % implication))))))))
+                               #(update-table % implication))
+                    (update target boost-priority (:time state))))))))
 
 (defn rules-for-antecedent
   "Return all implications whose antecedent matches `term`."
@@ -75,9 +84,10 @@
     "No concepts yet."
     (str/join
      "\n"
-     (for [[term {:keys [belief-spike goal-spike derived]}] concepts]
-       (format "%s belief=%s goal=%s derived=%d"
+     (for [[term {:keys [belief-spike goal-spike derived priority]}] concepts]
+       (format "%s belief=%s goal=%s derived=%d priority=%.2f"
                term
                (boolean belief-spike)
                (boolean goal-spike)
-               (count derived))))))
+               (count derived)
+               (double (or priority 0.0)))))))

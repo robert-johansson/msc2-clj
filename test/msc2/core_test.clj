@@ -1,9 +1,10 @@
 (ns msc2.core-test
   (:require [clojure.test :refer [deftest is testing]]
-            [msc2.core :as core]))
+            [msc2.core :as core]
+            [msc2.queue :as q]))
 
 (defn- queue? [q]
-  (instance? clojure.lang.PersistentQueue q))
+  (map? q))
 
 (deftest initial-state-structure
   (let [state (core/initial-state)]
@@ -27,7 +28,7 @@
                :term [:inherit 'A 'B]
                :truth {:frequency 1.0 :confidence 0.9}}
         ticked (core/step state event)
-        queued (peek (get-in ticked [:queues :belief]))]
+        queued (first (q/all-events (get-in ticked [:queues :belief])))]
     (testing "queue time is recorded"
       (is (= 1 (:queued-at queued))))
     (testing "original payload preserved"

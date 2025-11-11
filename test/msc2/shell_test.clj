@@ -57,7 +57,7 @@
                               :truth {:frequency 1.0 :confidence 0.9}}))
         {:keys [reply]} (shell/handle-command state {:command :narsese-command
                                                      :value {:command :concepts}})]
-    (is (re-find #"belief=true" reply))))
+    (is (re-find #"priority=" reply))))
 
 (deftest questions-use-concept-tables
   (let [state (-> (core/initial-state)

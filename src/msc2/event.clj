@@ -21,7 +21,8 @@
                :stamp normalized-stamp
                :occurrence-time occurrence
                :creation-time time
-               :queued-at time))))
+               :queued-at time
+               :priority 1.0))))
 
 (defn project-to-time
   "Project an event's truth to a target occurrence time."

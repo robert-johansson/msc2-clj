@@ -9,6 +9,7 @@
             [msc2.deduction :as ded]
             [msc2.event :as event]
             [msc2.fifo :as fifo]
+            [msc2.queue :as q]
             [msc2.inference :as inference]
             [msc2.memory :as memory]))
 
@@ -21,7 +22,11 @@
    :fifo-capacity 32
    :table-capacity 32
    :decision-threshold 0.5
-   :motor-babbling-prob 0.25})
+   :motor-babbling-prob 0.25
+   :event-durability 0.95
+   :concept-durability 0.98
+   :event-priority-threshold 0.05
+   :concept-priority-threshold 0.02})
 
 (def ^:private empty-queue
   "Persistent queue instance used for both belief and goal buffers."
@@ -35,19 +40,22 @@
   can fill in the actual data (concept tables, FIFO caches, etc.)."
   ([] (initial-state default-config))
   ([config]
-   {:config config
-    :time 0
-    :concepts {}
-    :queues {:belief empty-queue
-             :goal empty-queue}
-    :fifo (fifo/empty-buffer (:fifo-capacity config))
-    :derived []
-    :predictions []
-    :subgoals []
-    :decisions []
-    :anticipations []
-    :shell {:operations {}}
-    :history []}))
+   (let [queue-conf {:capacity (:belief-queue-capacity config)
+                     :durability (:event-durability config)
+                     :threshold (:event-priority-threshold config)}]
+     {:config config
+      :time 0
+      :concepts {}
+      :queues {:belief (q/empty-queue queue-conf)
+               :goal (q/empty-queue (assoc queue-conf :capacity (:goal-queue-capacity config)))}
+      :fifo (fifo/empty-buffer (:fifo-capacity config))
+      :derived []
+      :predictions []
+      :subgoals []
+      :decisions []
+      :anticipations []
+      :shell {:operations {}}
+      :history []})))
 
 (defn- classify-input
   "Decide which queue the incoming event should enter.
@@ -69,6 +77,33 @@
                 (memory/record-derived impl)))
           state
           derivations))
+
+(defn- decay-queues [state]
+  (update state :queues
+          (fn [queues]
+            (reduce-kv (fn [m k queue]
+                         (assoc m k (q/decay queue)))
+                       {}
+                       queues))))
+
+(defn- decay-concepts [state]
+  (let [factor (:concept-durability (:config state))
+        threshold (:concept-priority-threshold (:config state))]
+    (update state :concepts
+            (fn [concepts]
+              (reduce-kv
+               (fn [m term concept]
+                 (let [priority (* (or (:priority concept) 1.0) factor)
+                       concept (assoc concept :priority priority)]
+                   (if (and (< priority threshold)
+                            (empty? (:derived concept))
+                            (empty? (:tables concept))
+                            (nil? (:belief-spike concept))
+                            (nil? (:goal-spike concept)))
+                     m
+                     (assoc m term concept))))
+               {}
+               concepts)))))
 
 (defn- resolve-anticipations [state event]
   (let [match? #(= (:term event) (:expected-term %))
@@ -98,13 +133,15 @@
 
 (defn- current-goal [state]
   (or (first (:subgoals state))
-      (peek (get-in state [:queues :goal]))))
+      (first (q/all-events (get-in state [:queues :goal])))))
 
 (defn- drop-current-subgoal [state goal]
   (if (and (seq (:subgoals state))
            (= goal (first (:subgoals state))))
     (update state :subgoals subvec 1)
-    state))
+    (update-in state [:queues :goal :events]
+               (fn [events]
+                 (vec (remove #(= (:term %) (:term goal)) events))))))
 
 (defn- process-decisions [state]
   (let [goal (current-goal state)
@@ -149,7 +186,7 @@
         derivations (map #(apply inference/belief-induction %) pairs)]
     (-> state
         (assoc :fifo fifo)
-        (update-in [:queues :belief] conj event)
+        (update-in [:queues :belief] q/enqueue event)
         (memory/record-spike event)
         (update :history conj {:time (:time state)
                                :stage :fifo/enqueue
@@ -170,7 +207,7 @@
       (if (= queue-key :belief)
         (queue-belief state event)
         (-> state
-            (update-in [:queues queue-key] conj event)
+            (update-in [:queues :goal] q/enqueue event)
             (memory/record-spike event)
             (produce-subgoals event))))
     state))
@@ -184,6 +221,11 @@
                 :stage stage
                 :input (or input :tick)}))
 
+(defn- decay-state [state]
+  (-> state
+      decay-queues
+      decay-concepts))
+
 (defn step
   "Advance the reasoning state by a single cycle.
 
@@ -193,10 +235,12 @@
 
   Returns the updated state map."
   ([state] (step state nil))
+
   ([state input]
    (let [state' (-> state
                     (update :time inc)
                     expire-anticipations
+                    decay-state
                     (log-cycle :cycle/start input))
          state'' (cond-> state'
                    input (enqueue-input input))

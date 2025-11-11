@@ -19,7 +19,7 @@
 
 (deftest concepts-summary-empty-and-populated
   (is (= "No concepts yet." (memory/concepts-summary {})))
-  (is (re-find #"belief=true"
+  (is (re-find #"priority="
                (memory/concepts-summary {[:atom "A"] {:belief-spike {:term [:atom "A"]}
                                                       :goal-spike nil
                                                       :derived []}}))))
