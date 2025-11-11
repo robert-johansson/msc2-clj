@@ -1,0 +1,50 @@
+(ns msc2.decision
+  "Decision evaluation and motor babbling."
+  (:require [clojure.walk :as walk]
+            [msc2.memory :as memory]
+            [msc2.truth :as truth]))
+
+(set! *warn-on-reflection* true)
+
+(defn- operation-token [term]
+  (some #(when (and (vector? %) (= :op (first %))) (second %))
+        (tree-seq vector? seq term)))
+
+(defn candidates
+  "Return candidate rules for the given goal."
+  [concepts goal operations]
+  (let [valid-ops (set (vals operations))]
+    (for [rule (memory/rules-for-consequent concepts (:term goal))
+          :let [[_ _ antecedent _] (:term rule)
+                op (operation-token antecedent)]
+          :when (and op (valid-ops op))]
+      {:operation op
+       :rule rule
+       :goal goal
+       :desire (truth/expectation (:truth rule))})))
+
+(defn- scale-desire [candidate goal]
+  (let [goal-factor (truth/expectation (:truth goal))]
+    (update candidate :desire #(* goal-factor %))))
+
+(defn evaluate
+  "Select a learned decision or fall back to motor babbling."
+  [concepts goal operations {:keys [decision-threshold motor-babbling-prob]}]
+  (when goal
+    (let [scored (map #(scale-desire % goal)
+                      (candidates concepts goal operations))
+          best (first (sort-by :desire > scored))]
+      (cond
+        (and best (>= (:desire best) decision-threshold))
+        (assoc best :source :learned)
+
+        (and (seq operations)
+             (> motor-babbling-prob 0.0)
+             (< (rand) motor-babbling-prob))
+        (let [op (rand-nth (vec (vals operations)))]
+          {:operation op
+           :goal goal
+           :source :babble
+           :desire 0.0})
+
+        :else nil))))

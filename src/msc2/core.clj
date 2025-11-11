@@ -5,7 +5,9 @@
   Later milestones thread concrete inference/decision functions into the same
   pipeline without changing the API exposed here."
   (:refer-clojure :exclude [step])
-  (:require [msc2.event :as event]
+  (:require [msc2.decision :as dec]
+            [msc2.deduction :as ded]
+            [msc2.event :as event]
             [msc2.fifo :as fifo]
             [msc2.inference :as inference]
             [msc2.memory :as memory]))
@@ -40,6 +42,10 @@
              :goal empty-queue}
     :fifo (fifo/empty-buffer (:fifo-capacity config))
     :derived []
+    :predictions []
+    :subgoals []
+    :decisions []
+    :anticipations []
     :shell {:operations {}}
     :history []}))
 
@@ -64,6 +70,80 @@
           state
           derivations))
 
+(defn- resolve-anticipations [state event]
+  (let [match? #(= (:term event) (:expected-term %))
+        successes (filter match? (:anticipations state))
+        remaining (remove match? (:anticipations state))]
+    (-> (reduce (fn [s ant]
+                  (memory/record-derived s (:rule ant)))
+                (assoc state :anticipations (vec remaining))
+                successes))))
+
+(defn- expire-anticipations [state]
+  (let [time (:time state)
+        {:keys [expired keep]} (group-by #(<= (:deadline %) time) (:anticipations state))
+        expired (get expired true)
+        keep (get keep false)]
+    (-> (reduce (fn [s ant]
+                  (memory/record-derived s (assoc (:rule ant)
+                                                  :truth {:frequency 0.0 :confidence 0.2})))
+                (assoc state :anticipations (vec keep))
+                (or expired [])))))
+
+(defn- add-anticipation [state goal decision]
+  (update state :anticipations conj {:expected-term (:term goal)
+                                     :deadline (+ (:time state)
+                                                  (:occurrence-time-offset (:rule decision)))
+                                     :rule (:rule decision)}))
+
+(defn- current-goal [state]
+  (or (first (:subgoals state))
+      (peek (get-in state [:queues :goal]))))
+
+(defn- drop-current-subgoal [state goal]
+  (if (and (seq (:subgoals state))
+           (= goal (first (:subgoals state))))
+    (update state :subgoals subvec 1)
+    state))
+
+(defn- process-decisions [state]
+  (let [goal (current-goal state)
+        decision (dec/evaluate (:concepts state)
+                               goal
+                               (get-in state [:shell :operations])
+                               (:config state))]
+    (if (nil? decision)
+      state
+      (-> state
+          (update :decisions conj decision)
+          (drop-current-subgoal goal)
+          (add-anticipation goal decision)
+          (update :history conj {:time (:time state)
+                                 :stage :decision/execute
+                                 :input (:operation decision)})))))
+
+(defn- produce-predictions [state belief]
+  (let [rules (memory/rules-for-antecedent (:concepts state) (:term belief))
+        predictions (map #(ded/belief->prediction belief %) rules)]
+    (if (seq predictions)
+      (-> state
+          (update :predictions into predictions)
+          (update :history conj {:time (:time state)
+                                 :stage :deduction/prediction
+                                 :input (map :term predictions)}))
+      state)))
+
+(defn- produce-subgoals [state goal]
+  (let [rules (memory/rules-for-consequent (:concepts state) (:term goal))
+        subgoals (map #(ded/goal->subgoal goal %) rules)]
+    (if (seq subgoals)
+      (-> state
+          (update :subgoals into subgoals)
+          (update :history conj {:time (:time state)
+                                 :stage :deduction/subgoal
+                                 :input (map :term subgoals)}))
+      state)))
+
 (defn- queue-belief [state event]
   (let [{:keys [fifo pairs]} (fifo/enqueue (:fifo state) event)
         derivations (map #(apply inference/belief-induction %) pairs)]
@@ -75,6 +155,7 @@
                                :stage :fifo/enqueue
                                :input (:term event)})
         (record-deriveds derivations)
+        (produce-predictions event)
         (cond-> (seq derivations)
           (update :history conj {:time (:time state)
                                  :stage :induction/derived
@@ -90,7 +171,8 @@
         (queue-belief state event)
         (-> state
             (update-in [:queues queue-key] conj event)
-            (memory/record-spike event))))
+            (memory/record-spike event)
+            (produce-subgoals event))))
     state))
 
 (defn- log-cycle
@@ -114,7 +196,9 @@
   ([state input]
    (let [state' (-> state
                     (update :time inc)
+                    expire-anticipations
                     (log-cycle :cycle/start input))
          state'' (cond-> state'
-                   input (enqueue-input input))]
-     (log-cycle state'' :cycle/complete))))
+                   input (enqueue-input input))
+         state''' (process-decisions state'')]
+     (log-cycle state''' :cycle/complete))))

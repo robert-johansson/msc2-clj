@@ -21,5 +21,12 @@
   (is (= "No concepts yet." (memory/concepts-summary {})))
   (is (re-find #"belief=true"
                (memory/concepts-summary {[:atom "A"] {:belief-spike {:term [:atom "A"]}
-                                                     :goal-spike nil
-                                                     :derived []}}))))
+                                                      :goal-spike nil
+                                                      :derived []}}))))
+
+(deftest rule-lookups
+  (let [imp {:term [:implication :prediction [:atom "A"] [:atom "B"]]
+             :target-term [:atom "B"]}
+        state (memory/record-derived {:concepts {}} imp)]
+    (is (= [imp] (memory/rules-for-antecedent (:concepts state) [:atom "A"])))
+    (is (seq (memory/rules-for-consequent (:concepts state) [:atom "B"])))))

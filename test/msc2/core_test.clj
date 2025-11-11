@@ -49,6 +49,7 @@
     (is (= 1 (count (:derived state'))))
     (let [impl (first (:derived state'))]
       (is (= [:implication :prediction [:a] [:b]] (:term impl)))
+      (is (= [:b] (:consequent impl)))
       (is (= 1 (:occurrence-time-offset impl)))
       (is (< (Math/abs (- 0.28223 (get-in impl [:truth :confidence]))) 1.0e-5)))))
 
@@ -62,3 +63,30 @@
                                    :truth {:frequency 1.0 :confidence 0.9}})]
     (is (some? (get-in state'' [:concepts [:atom "A"] :belief-spike])))
     (is (some? (get-in state'' [:concepts [:atom "G"] :goal-spike])))))
+
+(deftest predictions-and-subgoals-are-produced
+  (let [state (-> (core/initial-state)
+                  (core/step {:type :belief
+                              :term [:a]
+                              :truth {:frequency 1.0 :confidence 0.9}})
+                  (core/step {:type :belief
+                              :term [:b]
+                              :occurrence-time 2
+                              :truth {:frequency 1.0 :confidence 0.9}})
+                  (core/step {:type :belief
+                              :term [:a]
+                              :occurrence-time 3
+                              :truth {:frequency 1.0 :confidence 0.9}}))]
+    (is (seq (:predictions state))))
+  (let [state (-> (core/initial-state)
+                  (core/step {:type :belief
+                              :term [:a]
+                              :truth {:frequency 1.0 :confidence 0.9}})
+                  (core/step {:type :belief
+                              :term [:b]
+                              :occurrence-time 2
+                              :truth {:frequency 1.0 :confidence 0.9}})
+                  (core/step {:type :goal
+                              :term [:b]
+                              :truth {:frequency 1.0 :confidence 0.9}}))]
+    (is (seq (:subgoals state)))))

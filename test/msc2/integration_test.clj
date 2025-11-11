@@ -17,5 +17,7 @@
 
 (deftest simple-implication-script-populates-concepts
   (let [state (run-script "simple_implication2.nal")
-        table (get-in state [:concepts [:atom "G"] :tables [:prediction [:atom "A"]]])]
-    (is (seq table))))
+        table (get-in state [:concepts [:atom "G"] :tables [:prediction [:atom "A"]]])
+        confidence (get-in (first table) [:truth :confidence])]
+    (is (seq table))
+    (is (<= 0.20 confidence 0.30))))

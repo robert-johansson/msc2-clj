@@ -85,6 +85,16 @@
                           {:command :error
                            :message "Unrecognized input"}))))))
 
+(defn- decision-replies [old-state new-state]
+  (let [old-count (count (:decisions old-state))
+        new-decisions (drop old-count (:decisions new-state))]
+    (when (seq new-decisions)
+      (str/join
+       "\n"
+       (for [{:keys [operation source desire]} new-decisions]
+         (format "Decision: %s source=%s desire=%.3f"
+                 operation source desire))))))
+
 (defn handle-command
   "Apply a parsed command to the running state. Returns a map containing at
   least `:state` and optionally `:reply` or `:quit?`."
@@ -99,9 +109,12 @@
     :narsese-command (apply-narsese-command state value)
     :input (try
              (let [state' (core/step state value)
-                   summary (if value (:type value) :tick)]
+                   summary (if value (:type value) :tick)
+                   reply (str (format "cycle=%d queued=%s" (:time state') summary)
+                              (when-let [dec (decision-replies state state')]
+                                (str "\n" dec)))]
                {:state state'
-                :reply (format "cycle=%d queued=%s" (:time state') summary)})
+                :reply reply})
              (catch Exception ex
                {:state state
                 :reply (format "Input rejected: %s" (.getMessage ex))}))

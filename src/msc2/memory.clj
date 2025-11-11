@@ -58,6 +58,18 @@
                     (update-in [target :tables]
                                #(update-table % implication))))))))
 
+(defn rules-for-antecedent
+  "Return all implications whose antecedent matches `term`."
+  [concepts term]
+  (mapcat (fn [[_ concept]]
+            (get-in concept [:tables [:prediction term]]))
+          concepts))
+
+(defn rules-for-consequent
+  "Return all implications whose consequent matches `term`."
+  [concepts term]
+  (mapcat identity (vals (get-in concepts [term :tables] {}))))
+
 (defn concepts-summary [concepts]
   (if (empty? concepts)
     "No concepts yet."
