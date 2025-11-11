@@ -1,0 +1,4 @@
+[submodule "external/msc2"]
+	path = external/msc2
+	url = https://github.com/opennars/OpenNARS-for-Applications.git
+	branch = MSC2
