@@ -88,11 +88,50 @@
 (defn- stats-summary [state]
   (let [concepts (vals (:concepts state))
         concept-count (count concepts)
-        avg-priority (double (or (avg (keep :priority concepts)) 0.0))
-        concept-usefulness (double (or (avg (keep :use-count concepts)) 0.0))
+        config (:config state)
+        concept-capacity (double (max 1 (:concept-capacity config 1)))
+        goal-capacity (double (max 1 (:goal-queue-capacity config 1)))
+        avg-priority (/ (double (reduce + (map #(double (or (:priority %) 0.0)) concepts)))
+                        concept-capacity)
+        usage-usefulness (fn [{:keys [use-count last-used]}]
+                           (let [use-count (double (or use-count 0.0))
+                                 last-used (double (or last-used (:time state)))
+                                 recency (max 0.0 (- (double (:time state)) last-used))
+                                 usefulness (/ use-count (inc recency))]
+                             (if (zero? usefulness)
+                               0.0
+                               (/ usefulness (inc usefulness)))))
+        avg-usefulness (/ (double (reduce + (map usage-usefulness concepts)))
+                          concept-capacity)
         goal-events (get-in state [:queues :goal :events])
         goal-count (count goal-events)
-        avg-goal-priority (double (or (avg (keep :priority goal-events)) 0.0))]
+        avg-goal-priority (/ (double (reduce + (map #(double (or (:priority %) 0.0)) goal-events)))
+                             goal-capacity)
+        concept-hash (let [keys (keys (:concepts state))
+                           buckets (max 1 (:concept-capacity config 1))]
+                       (if (seq keys)
+                         (->> keys
+                              (map #(mod (hash %) buckets))
+                              frequencies
+                              vals
+                              (apply max))
+                         0))
+        atom-hash (let [extract-atoms (fn extract [term]
+                                        (cond
+                                          (term/atom? term) [term]
+                                          (term/op? term) [term]
+                                          (vector? term) (mapcat extract (rest term))
+                                          (sequential? term) (mapcat extract term)
+                                          :else []))
+                          atoms (mapcat #(extract-atoms (:term %)) concepts)
+                          buckets (max 1 (* 2 (:concept-capacity config 1)))]
+                      (if (seq atoms)
+                        (->> atoms
+                             (map #(mod (hash %) buckets))
+                             frequencies
+                             vals
+                             (apply max))
+                        0))]
     (str/join
      "\n"
      [(str "Statistics")
@@ -103,11 +142,11 @@
       (format "currentTime:\t\t\t%d" (:time state))
       (format "total concepts:\t\t\t%d" concept-count)
       (format "current average concept priority:\t%.6f" avg-priority)
-      (format "current average concept usefulness:\t%.6f" concept-usefulness)
+      (format "current average concept usefulness:\t%.6f" avg-usefulness)
       (format "curring goal events cnt:\t\t%d" goal-count)
       (format "current average goal event priority:\t%.6f" avg-goal-priority)
-      "Maximum chain length in concept hashtable: 1"
-      "Maximum chain length in atoms hashtable: 1"])))
+      (format "Maximum chain length in concept hashtable: %d" concept-hash)
+      (format "Maximum chain length in atoms hashtable: %d" atom-hash)])))
 
 (defn- queue-lines [events label]
   (if (seq events)
