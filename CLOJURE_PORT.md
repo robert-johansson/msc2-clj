@@ -22,24 +22,35 @@ This note captures a practical strategy for reimplementing MSC2 (the C sensorimo
   - `stamp/make`, `stamp/overlap?`, `stamp/merge`
 - Write unit tests that assert parity with the C formulas (use known `(f,c)` inputs and expected outputs).
 
-## 3. State-Passing Pipeline
+## 3. State-Passing Pipeline (No `swap!` Required)
 
-- Maintain the entire reasoner state in a single map (or record) wrapped in an atom:
+- Model the entire reasoner as a pure reducer:
   ```clojure
-  (defonce system-state (atom initial-state))
+  (defn step [state input]
+    (-> state
+        (process-input input)
+        update-fifo
+        run-induction
+        run-deduction
+        run-goal-decomposition
+        run-decision
+        run-forgetting)))
   ```
-- Each stage of the control loop is a pure function `(state input) -> state'`. Example pipeline:
+- The REPL can keep a “current” state in an atom for convenience, but the core API remains `(step state input) -> state'`.
+- For event streams, use `reductions`/`iterate` to build lazy sequences of successive states:
   ```clojure
-  (-> state
-      (process-input input-event)
-      update-fifo
-      run-induction
-      run-deduction
-      run-goal-decomposition
-      run-decision
-      run-forgetting)
+  (def states (reductions step initial-state inputs))
+  (def final-state (last states))
   ```
-- During execution, you can swap! the atom with the pipeline result. For testing, you can call each stage directly without mutation.
+- In a real-time loop:
+  ```clojure
+  (loop [state initial-state
+         events input-stream]
+    (when-let [event (first events)]
+      (let [state' (step state event)]
+        (recur state' (rest events)))))
+  ```
+- When embedding in an app, thread the state explicitly through a loop (`loop/recur`) or a stream processor (core.async, manifold, etc.), avoiding implicit mutation.
 
 ## 4. FIFO, Priority Queues, Tables
 
