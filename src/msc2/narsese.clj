@@ -103,6 +103,12 @@
 (defn- parse-command-line [line]
   (let [trim (str/trim line)]
     (cond
+      (= "*reset" trim)
+      {:kind :command :command :reset}
+
+      (= "*stats" trim)
+      {:kind :command :command :stats}
+
       (re-matches #"\*concepts" trim)
       {:kind :command :command :concepts}
 

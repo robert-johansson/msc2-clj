@@ -27,7 +27,8 @@
                                                                    :truth {:frequency 1.0
                                                                            :confidence 0.9}}})]
     (is (= 1 (:time state)))
-    (is (re-find #"cycle=1" reply))))
+    (is (re-find #"Input:" reply))
+    (is (re-find #"occurrenceTime=1" reply))))
 
 (deftest handle-command-rejects-bad-input
   (let [state (core/initial-state)
@@ -48,7 +49,17 @@
                                                            :value {:command :motorbabbling
                                                                    :value 0.9}})]
     (is (= 0.9 (get-in state [:config :motor-babbling-prob])))
-    (is (re-find #"Motor babbling" reply))))
+    (is (re-find #"Motor babbling" reply)))
+  (let [state (assoc (core/initial-state) :time 5)
+        {:keys [state reply]} (shell/handle-command state {:command :narsese-command
+                                                           :value {:command :stats}})]
+    (is (= 5 (:time state)))
+    (is (re-find #"Statistics" reply)))
+  (let [state (assoc (core/initial-state) :time 42)
+        {:keys [state reply]} (shell/handle-command state {:command :narsese-command
+                                                           :value {:command :reset}})]
+    (is (= 0 (:time state)))
+    (is (re-find #"State reset" reply))))
 
 (deftest concepts-command-shows-summary
   (let [state (-> (core/initial-state)

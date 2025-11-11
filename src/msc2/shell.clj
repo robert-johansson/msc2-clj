@@ -3,8 +3,11 @@
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [msc2.core :as core]
+            [msc2.event :as evt]
             [msc2.memory :as memory]
-            [msc2.narsese :as narsese]))
+            [msc2.narsese :as narsese]
+            [msc2.term :as term]
+            [msc2.truth :as truth]))
 
 (defn- sentence->input [{:keys [type term truth dt channel]}]
   (case type
@@ -13,10 +16,90 @@
     :question nil
     nil))
 
+(defn- punctuation [type]
+  (case type
+    :belief "."
+    :goal "!"
+    :question "?"
+    "."))
+
+(defn- truth->string [{:keys [frequency confidence]}]
+  (format "Truth: frequency=%.6f, confidence=%.6f"
+          (double (or frequency 0.0))
+          (double (or confidence 0.0))))
+
+(defn- term->fragment [term type channel]
+  (let [body (try
+               (term/term->string term)
+               (catch Exception _
+                 (str term)))]
+    (str body
+         (punctuation type)
+       (when channel
+         (str " " channel)))))
+
+(defn- prepare-input-event [state input]
+  (when input
+    (let [time-context {:time (inc (:time state))}]
+      (try
+        (evt/prepare time-context input)
+        (catch Exception _ nil)))))
+
 (defn- parse-edn [trimmed]
   (try {:command :input
         :value (edn/read-string trimmed)}
        (catch Exception _ nil)))
+
+(defn- format-input-line [{:keys [type term channel truth occurrence-time]}]
+  (let [fragment (term->fragment term type channel)]
+    (if (= :question type)
+      (str "Input: " fragment)
+      (str "Input: " fragment
+           (when occurrence-time
+             (format " occurrenceTime=%d" (long occurrence-time)))
+           " Priority=1.000000 "
+           (truth->string (or truth narsese/default-truth))))))
+
+(defn- derived-priority [{:keys [priority truth]}]
+  (double (or priority
+              (when truth (truth/expectation truth))
+              0.0)))
+
+(defn- format-derived-line [{:keys [term truth occurrence-time-offset channel] :as derivation}]
+  (let [dt (when occurrence-time-offset
+             (format "dt=%.6f " (double occurrence-time-offset)))]
+    (str "Derived: "
+         (or dt "")
+         (term->fragment term :belief channel)
+         " Priority="
+         (format "%.6f" (derived-priority derivation))
+         " "
+         (truth->string truth))))
+
+(defn- new-derived-lines [old-state new-state]
+  (let [old-count (count (:derived old-state))
+        additions (drop old-count (:derived new-state))]
+    (map format-derived-line additions)))
+
+(defn- avg [xs]
+  (when (seq xs)
+    (/ (reduce + xs) (count xs))))
+
+(defn- stats-summary [state]
+  (let [concepts (vals (:concepts state))
+        concept-count (count concepts)
+        avg-priority (double (or (avg (keep :priority concepts)) 0.0))
+        belief-count (count (get-in state [:queues :belief :events]))
+        goal-count (count (get-in state [:queues :goal :events]))]
+    (str/join
+     "\n"
+     [(str "Statistics")
+      "----------"
+      (format "currentTime:\t\t\t%d" (:time state))
+      (format "total concepts:\t\t\t%d" concept-count)
+      (format "current average concept priority:\t%.6f" avg-priority)
+      (format "current belief events:\t\t%d" belief-count)
+      (format "current goal events:\t\t%d" goal-count)])))
 
 (defn- sentence->command [sentence]
   (case (:type sentence)
@@ -38,6 +121,14 @@
 
 (defn- apply-narsese-command [state {:keys [command index operation value raw]}]
   (case command
+    :reset (let [ops (get-in state [:shell :operations])
+                 config (:config state)
+                 fresh (-> (core/initial-state config)
+                           (assoc-in [:shell :operations] ops))]
+             {:state fresh
+              :reply "State reset."})
+    :stats {:state state
+            :reply (stats-summary state)}
     :setopname (let [state' (assoc-in state [:shell :operations index] operation)]
                  {:state state'
                   :reply (format "Set op %d to %s" index operation)})
@@ -49,16 +140,22 @@
     :unknown {:state state :reply (format "Unknown command: %s" raw)}
     {:state state :reply (format "Unhandled command: %s" command)}))
 
+(defn- format-answer-line [entry]
+  (let [creation (long (or (:creation-time entry) 0))]
+    (str "Answer: "
+         (term->fragment (:term entry) :belief nil)
+         " creationTime="
+         creation
+         " "
+         (truth->string (:truth entry)))))
+
 (defn- answer-question [state {:keys [term]}]
   (let [[_ cop antecedent consequent] term
         concept (get-in state [:concepts consequent])]
     (if (and (= :prediction cop) concept)
       (if-let [entry (first (get-in concept [:tables [:prediction antecedent]]))]
         {:state state
-         :reply (format "Answer: %s Truth: %.6f %.6f"
-                        (second (:term entry))
-                        (get-in entry [:truth :frequency])
-                        (get-in entry [:truth :confidence]))}
+         :reply (format-answer-line entry)}
         {:state state :reply "Answer: None."})
       {:state state :reply "Answer: None."})))
 
@@ -85,15 +182,15 @@
                           {:command :error
                            :message "Unrecognized input"}))))))
 
-(defn- decision-replies [old-state new-state]
+(defn- decision-lines [old-state new-state]
   (let [old-count (count (:decisions old-state))
         new-decisions (drop old-count (:decisions new-state))]
-    (when (seq new-decisions)
-      (str/join
-       "\n"
-       (for [{:keys [operation source desire]} new-decisions]
-         (format "Decision: %s source=%s desire=%.3f"
-                 operation source desire))))))
+    (map (fn [{:keys [operation source desire]}]
+           (format "%s executed desire=%.3f source=%s"
+                   (or operation "^op")
+                   (double (or desire 0.0))
+                   (name (or source :unknown))))
+         new-decisions)))
 
 (defn handle-command
   "Apply a parsed command to the running state. Returns a map containing at
@@ -105,16 +202,27 @@
     :info {:state state :reply (or message "(info)")}
     :error {:state state
             :reply (format "Parse error: %s" (or message "unknown"))}
-    :question (answer-question state value)
+    :question (let [{state' :state reply :reply} (answer-question state value)
+                    lines (cond-> [(format-input-line value)]
+                            reply (conj reply))]
+                {:state state'
+                 :reply (str/join "\n" lines)})
     :narsese-command (apply-narsese-command state value)
     :input (try
-             (let [state' (core/step state value)
-                   summary (if value (:type value) :tick)
-                   reply (str (format "cycle=%d queued=%s" (:time state') summary)
-                              (when-let [dec (decision-replies state state')]
-                                (str "\n" dec)))]
+             (let [prepared (when value (prepare-input-event state value))
+                   state' (core/step state value)
+                   input-line (when prepared
+                                (format-input-line prepared))
+                   derived-lines (new-derived-lines state state')
+                   decision-lines (decision-lines state state')
+                   lines (cond-> []
+                            input-line (conj input-line)
+                            (seq derived-lines) (into derived-lines)
+                            (seq decision-lines) (into decision-lines))]
                {:state state'
-                :reply reply})
+                :reply (if (seq lines)
+                         (str/join "\n" lines)
+                         (format "cycle=%d" (:time state')))})
              (catch Exception ex
                {:state state
                 :reply (format "Input rejected: %s" (.getMessage ex))}))
