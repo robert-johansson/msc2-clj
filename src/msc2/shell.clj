@@ -89,7 +89,7 @@
   (let [concepts (vals (:concepts state))
         concept-count (count concepts)
         avg-priority (double (or (avg (keep :priority concepts)) 0.0))
-        concept-usefulness 0.0
+        concept-usefulness (double (or (avg (keep :use-count concepts)) 0.0))
         goal-events (get-in state [:queues :goal :events])
         goal-count (count goal-events)
         avg-goal-priority (double (or (avg (keep :priority goal-events)) 0.0))]
@@ -109,12 +109,32 @@
       "Maximum chain length in concept hashtable: 1"
       "Maximum chain length in atoms hashtable: 1"])))
 
+(defn- queue-lines [events label]
+  (if (seq events)
+    (str "//*" label "\n"
+         (str/join
+          "\n"
+          (for [e events]
+            (format "%s: {\"priority\": %.6f, \"time\": %d } %s"
+                    (term->fragment (:term e) (:type e) (:channel e))
+                    (double (or (:priority e) 0.0))
+                    (long (or (:occurrence-time e) 0))
+                    (truth->string (:truth e)))))
+         "\n//*done")
+    (str "//*" label "\n//*done")))
+
 (defn- sentence->command [sentence]
   (case (:type sentence)
     :question {:command :question :value sentence}
     (if-let [event (sentence->input sentence)]
       {:command :input :value event}
       {:command :error :message "Unsupported sentence"})))
+
+(defn- antecedent->precondition [antecedent]
+  (cond
+    (nil? antecedent) nil
+    (term/sequence? antecedent) (antecedent->precondition (second antecedent))
+    :else antecedent))
 
 (defn- parse-narsese-line [line]
   (try
@@ -137,14 +157,35 @@
               :reply "State reset."})
     :stats {:state state
             :reply (stats-summary state)}
+    :volume (let [print? (>= (long value) 100)
+                  state' (assoc-in state [:shell :print-derived?] print?)]
+              {:state state'
+               :reply (format "Volume set to %d" (long value))})
+    :babblingops (let [state' (assoc-in state [:config :babbling-ops] value)]
+                   {:state state'
+                    :reply (format "Babbling ops limited to %d" value)})
+    :motorbabbling-toggle (let [default (get-in state [:shell :motor-babbling-default]
+                                               (get-in state [:config :motor-babbling-prob] 0.25))
+                                new-prob (if value default 0.0)
+                                state' (assoc-in state [:config :motor-babbling-prob] new-prob)]
+                            {:state state'
+                             :reply (if value "Motor babbling enabled" "Motor babbling disabled")})
     :setopname (let [state' (assoc-in state [:shell :operations index] operation)]
                  {:state state'
                   :reply (format "Set op %d to %s" index operation)})
-    :motorbabbling (let [state' (assoc-in state [:config :motor-babbling-prob] value)]
+    :motorbabbling (let [state' (-> state
+                                    (assoc-in [:config :motor-babbling-prob] value)
+                                    (assoc-in [:shell :motor-babbling-default] value))]
                      {:state state'
                       :reply (format "Motor babbling set to %.2f" value)})
     :concepts {:state state
                :reply (memory/concepts-summary (:concepts state))}
+    :cycling-belief {:state state
+                     :reply (queue-lines (get-in state [:queues :belief :events])
+                                         "cycling_belief_events")}
+    :cycling-goal {:state state
+                   :reply (queue-lines (get-in state [:queues :goal :events])
+                                       "cycling_goal_events")}
     :unknown {:state state :reply (format "Unknown command: %s" raw)}
     {:state state :reply (format "Unhandled command: %s" command)}))
 
@@ -197,24 +238,34 @@
   (let [old-count (count (:decisions old-state))
         new-decisions (drop old-count (:decisions new-state))]
     (mapcat
-     (fn [{:keys [operation source desire rule goal]}]
-       (let [rule-truth (:truth rule)
-             dt (double (or (:occurrence-time-offset rule) 0.0))
-             precondition-term (if goal
-                                 (term->fragment (:term goal) (:type goal) (:channel goal))
-                                 "None")
-             precondition-truth (or (:truth goal) narsese/default-truth)
-             precondition-time (long (or (:occurrence-time goal) (:time new-state) 0))]
-         [(format "decision expectation=%.6f implication: %s Truth: frequency=%.6f confidence=%.6f dt=%.6f precondition: %s Truth: frequency=%.6f confidence=%.6f occurrenceTime=%d"
+     (fn [{:keys [operation source desire rule]}]
+       (if rule
+         (let [[_ _ antecedent _] (:term rule)
+               precondition (antecedent->precondition antecedent)
+               antecedent-event (when precondition
+                                  (get-in new-state [:concepts precondition :belief-spike]))
+               precondition-term (when precondition
+                                   (term->fragment precondition :belief (:channel antecedent-event)))
+               precondition-truth (or (:truth antecedent-event) narsese/default-truth)
+               precondition-time (long (or (:occurrence-time antecedent-event)
+                                           (:time new-state) 0))
+               rule-truth (:truth rule)
+               dt (double (or (:occurrence-time-offset rule) 0.0))]
+           [(format "decision expectation=%.6f implication: %s Truth: frequency=%.6f confidence=%.6f dt=%.6f precondition: %s Truth: frequency=%.6f confidence=%.6f occurrenceTime=%d"
+                    (double (or desire 0.0))
+                    (term->fragment (:term rule) :belief nil)
+                    (get rule-truth :frequency 0.0)
+                    (get rule-truth :confidence 0.0)
+                    dt
+                    (or precondition-term "None")
+                    (get precondition-truth :frequency 0.0)
+                    (get precondition-truth :confidence 0.0)
+                    precondition-time)
+            (format "%s executed with args "
+                    (or operation "^op"))])
+         [(format "decision motor-babble desire=%.6f source=%s"
                   (double (or desire 0.0))
-                  (term->fragment (:term rule) :belief nil)
-                  (get rule-truth :frequency 0.0)
-                  (get rule-truth :confidence 0.0)
-                  dt
-                  precondition-term
-                  (get precondition-truth :frequency 0.0)
-                  (get precondition-truth :confidence 0.0)
-                  precondition-time)
+                  (name (or source :babble)))
           (format "%s executed with args "
                   (or operation "^op"))]))
      new-decisions)))
@@ -252,11 +303,13 @@
                    state' (core/step state value)
                    input-line (when prepared
                                 (format-input-line prepared))
-                   derived-lines (new-derived-lines state state')
+                   print-derived? (get-in state' [:shell :print-derived?] true)
+                   derived-lines (when print-derived?
+                                   (seq (new-derived-lines state state')))
                    decision-lines (decision-lines state state')
                    lines (cond-> []
                             input-line (conj input-line)
-                            (seq derived-lines) (into derived-lines)
+                            derived-lines (into derived-lines)
                             (seq decision-lines) (into decision-lines))]
                {:state state'
                 :reply (if (seq lines)

@@ -112,12 +112,36 @@
       (re-matches #"\*concepts" trim)
       {:kind :command :command :concepts}
 
+      (re-matches #"\*volume=\d+" trim)
+      (let [[_ v] (re-matches #"\*volume=(\d+)" trim)]
+        {:kind :command
+         :command :volume
+         :value (Integer/parseInt v)})
+
+      (re-matches #"\*babblingops=\d+" trim)
+      (let [[_ v] (re-matches #"\*babblingops=(\d+)" trim)]
+        {:kind :command
+         :command :babblingops
+         :value (Integer/parseInt v)})
+
+      (= "*motorbabbling=true" trim)
+      {:kind :command :command :motorbabbling-toggle :value true}
+
+      (= "*motorbabbling=false" trim)
+      {:kind :command :command :motorbabbling-toggle :value false}
+
       (re-matches #"\*setopname\s+\d+\s+\S+" trim)
       (let [[_ idx op] (re-matches #"\*setopname\s+(\d+)\s+(\S+)" trim)]
         {:kind :command
          :command :setopname
          :index (Integer/parseInt idx)
          :operation op})
+
+      (re-matches #"\*cycling_belief_events" trim)
+      {:kind :command :command :cycling-belief}
+
+      (re-matches #"\*cycling_goal_events" trim)
+      {:kind :command :command :cycling-goal}
 
       (re-matches #"\*motorbabbling=\d+(\.\d+)?" trim)
       (let [[_ v] (re-matches #"\*motorbabbling=([0-9.]+)" trim)]

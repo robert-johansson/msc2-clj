@@ -10,6 +10,15 @@
   (some #(when (and (vector? %) (= :op (first %))) (second %))
         (tree-seq vector? seq term)))
 
+(defn- sorted-ops [operations babbling-ops]
+  (let [ordered (->> operations
+                     (sort-by key)
+                     (map second)
+                     (remove nil?))]
+    (vec (if (and babbling-ops (pos? babbling-ops))
+           (take babbling-ops ordered)
+           ordered))))
+
 (defn candidates
   "Return candidate rules for the given goal."
   [concepts goal operations]
@@ -30,19 +39,20 @@
 
 (defn evaluate
   "Select a learned decision or fall back to motor babbling."
-  [concepts goal operations {:keys [decision-threshold motor-babbling-prob]}]
+  [concepts goal operations {:keys [decision-threshold motor-babbling-prob babbling-ops]}]
   (when goal
     (let [scored (map #(scale-desire % goal)
                       (candidates concepts goal operations))
-          best (first (sort-by :desire > scored))]
+          best (first (sort-by :desire > scored))
+          op-pool (sorted-ops operations babbling-ops)]
       (cond
         (and best (>= (:desire best) decision-threshold))
         (assoc best :source :learned)
 
-        (and (seq operations)
+        (and (seq op-pool)
              (> motor-babbling-prob 0.0)
              (< (rand) motor-babbling-prob))
-        (let [op (rand-nth (vec (vals operations)))]
+        (let [op (rand-nth op-pool)]
           {:operation op
            :goal goal
            :source :babble

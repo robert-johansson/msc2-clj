@@ -51,3 +51,14 @@
     (is (some #(re-find #"<\(A &/ \^left\) =/> G>" %) lines))
     (is (some #(re-find #"\^left executed" %) lines))
     (is (not-any? #(re-find #"<A =/> A>" %) lines))))
+
+(deftest simple-implication5-executes-operation-after-delay
+  (let [lines (script-lines "simple_implication5.nal")]
+    (is (some #(re-find #"\^left executed" %) lines))
+    (is (not-any? #(re-find #"Input rejected" %) lines))))
+
+(deftest pong-ball-right-script-runs
+  (let [lines (script-lines "pong_ball_right.nal")]
+    (is (some #(re-find #"<ball_right =/> G>" %) lines))
+    (is (some #(re-find #"\^right executed" %) lines))
+    (is (not-any? #(re-find #"Input rejected" %) lines))))

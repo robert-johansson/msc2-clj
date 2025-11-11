@@ -65,7 +65,57 @@
         {:keys [state reply]} (shell/handle-command state {:command :narsese-command
                                                            :value {:command :reset}})]
     (is (= 0 (:time state)))
-    (is (re-find #"State reset" reply))))
+    (is (re-find #"State reset" reply)))
+  (let [{:keys [state reply]} (shell/handle-command (core/initial-state)
+                                                   {:command :narsese-command
+                                                    :value {:command :volume
+                                                            :value 0}})]
+    (is (false? (get-in state [:shell :print-derived?])))
+    (is (re-find #"Volume set" reply)))
+  (let [{:keys [state reply]} (shell/handle-command (core/initial-state)
+                                                   {:command :narsese-command
+                                                    :value {:command :babblingops
+                                                            :value 1}})]
+    (is (= 1 (get-in state [:config :babbling-ops])))
+    (is (re-find #"Babbling ops" reply)))
+  (let [{:keys [state reply]} (shell/handle-command (core/initial-state)
+                                                   {:command :narsese-command
+                                                    :value {:command :motorbabbling-toggle
+                                                            :value false}})]
+    (is (zero? (get-in state [:config :motor-babbling-prob])))
+    (is (re-find #"disabled" reply)))
+  (let [state (-> (core/initial-state)
+                  (core/step {:type :belief
+                              :term [:atom "A"]
+                              :truth {:frequency 1.0 :confidence 0.9}}))
+        {:keys [reply]} (shell/handle-command state {:command :narsese-command
+                                                     :value {:command :cycling-belief}})]
+    (is (re-find #"cycling_belief_events" reply)))
+  (let [state (-> (core/initial-state)
+                  (core/step {:type :goal
+                              :term [:atom "G"]
+                              :truth {:frequency 1.0 :confidence 0.9}}))
+        {:keys [reply]} (shell/handle-command state {:command :narsese-command
+                                                     :value {:command :cycling-goal}})]
+    (is (re-find #"cycling_goal_events" reply))))
+
+(deftest volume-command-suppresses-derived-lines
+  (let [{state :state} (shell/handle-command (core/initial-state)
+                                             {:command :narsese-command
+                                              :value {:command :volume
+                                                      :value 0}})
+        {:keys [state]} (shell/handle-command state {:command :input
+                                                     :value {:type :belief
+                                                             :term [:atom "A"]
+                                                             :truth {:frequency 1.0
+                                                                     :confidence 0.9}}})
+        {:keys [reply]} (shell/handle-command state {:command :input
+                                                     :value {:type :belief
+                                                             :term [:atom "B"]
+                                                             :occurrence-time 2
+                                                             :truth {:frequency 1.0
+                                                                     :confidence 0.9}}})]
+    (is (not (re-find #"Derived" reply)))))
 
 (deftest concepts-command-shows-summary
   (let [state (-> (core/initial-state)

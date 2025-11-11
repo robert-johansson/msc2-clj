@@ -16,6 +16,8 @@
             [msc2.term :as term]
             [msc2.truth :as truth]))
 
+(declare inject-operation enqueue-input)
+
 (def ^:const default-config
   "Minimal configuration derived from MSC2's Config.h defaults. The values are
   placeholders and mainly document the knobs that later milestones will honor."
@@ -26,6 +28,7 @@
    :table-capacity 32
    :decision-threshold 0.5
    :motor-babbling-prob 0.25
+   :babbling-ops nil
    :event-durability 0.95
    :concept-durability 0.98
    :event-priority-threshold 0.05
@@ -58,7 +61,10 @@
       :subgoals []
       :decisions []
       :anticipations []
-      :shell {:operations {}}
+      :shell {:operations {}
+              :print-derived? true
+              :babbling-ops nil
+              :motor-babbling-default (:motor-babbling-prob config)}
       :history []})))
 
 (defn- op-event? [event]
@@ -180,10 +186,12 @@
                 (or expired [])))))
 
 (defn- add-anticipation [state goal decision]
-  (update state :anticipations conj {:expected-term (:term goal)
-                                     :deadline (+ (:time state)
-                                                  (:occurrence-time-offset (:rule decision)))
-                                     :rule (:rule decision)}))
+  (if-let [rule (:rule decision)]
+    (update state :anticipations conj {:expected-term (:term goal)
+                                       :deadline (+ (:time state)
+                                                    (or (:occurrence-time-offset rule) 0))
+                                       :rule rule})
+    state))
 
 (defn- current-goal [state]
   (or (first (q/all-events (get-in state [:queues :goal])))
@@ -196,6 +204,17 @@
     (update-in state [:queues :goal :events]
                (fn [events]
                  (vec (remove #(= (:term %) (:term goal)) events))))))
+
+(defn- inject-operation [state {:keys [operation]}]
+  (if operation
+    (let [op-term (term/op-term operation)
+          event {:type :belief
+                 :term op-term
+                 :truth truth/structural-truth
+                 :channel ":|:"}
+          prepared (event/prepare state event)]
+      (enqueue-input state prepared))
+    state))
 
 (defn- process-decisions [state]
   (let [goal (current-goal state)
@@ -211,7 +230,8 @@
           (add-anticipation goal decision)
           (update :history conj {:time (:time state)
                                  :stage :decision/execute
-                                 :input (:operation decision)})))))
+                                 :input (:operation decision)})
+          (inject-operation decision)))))
 
 (defn- produce-predictions [state belief]
   (let [rules (memory/rules-for-antecedent (:concepts state) (:term belief))
