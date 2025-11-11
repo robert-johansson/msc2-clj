@@ -7,6 +7,6 @@
           :main-opts   ["-m" "nrepl.cmdline" "--port" "7888"]}
   :mcp   {:deps {org.slf4j/slf4j-nop {:mvn/version "2.0.16"}
                  com.bhauman/clojure-mcp {:git/url "https://github.com/bhauman/clojure-mcp.git"
-                                          :git/sha "837afc4"}}
+                                          :git/sha "837afc4a0da4a3acc00c6ec7d43505e3dcdd1c48"}}
           :exec-fn   clojure-mcp.main/start-mcp-server
           :exec-args {:port 7888}}}}
