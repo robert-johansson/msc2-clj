@@ -107,4 +107,15 @@ At each step, add `.nal`-based tests so regressions fail fast.
   - Each pipeline stage touches only bounded subsets (no unbounded `map`/`filter` over global memory).
   - Periodic `for`/`reduce` operations are capped by configuration (mirroring the C limits).
 
-Following this plan yields a Clojure implementation that is idiomatic (pure data, explicit state passing) yet semantically identical to the C kernel. The `.nal` micros and experiment scripts provide the ground truth to verify behaviour at every stage.***
+Following this plan yields a Clojure implementation that is idiomatic (pure data, explicit state passing) yet semantically identical to the C kernel. The `.nal` micros and experiment scripts provide the ground truth to verify behaviour at every stage.
+
+## Tooling Recommendations
+
+- **Testing:** [Kaocha](https://github.com/lambdaisland/kaocha) for orchestrating unit + integration tests; add aliases in `deps.edn` for `clojure -X:test` and `clojure -X:kaocha`.
+- **Specs/Properties:** use `clojure.spec` and/or `test.check` to assert invariants (truth values stay in `[0,1]`, stamps never overlap after merging, etc.).
+- **Priority queues:** [data.priority-map](https://github.com/clojure/data.priority-map) or [medley](https://github.com/weavejester/medley) for attention queues; wrap them to enforce capacity limits.
+- **Linting:** `clj-kondo` (integrated into CI) to catch arity/namespace issues early.
+- **Benchmarking:** `criterium` for profiling critical code paths (e.g., cycle step) to ensure bounded runtime.
+- **REPL tooling:** use `rebel-readline`, Portal, or Reveal for interactive inspection; keep helper fns (`view-concepts`, `view-queues`) to replicate the `*concepts` experience.
+
+With these tools in place, the port will stay testable, inspectable, and close to the C reference.***
