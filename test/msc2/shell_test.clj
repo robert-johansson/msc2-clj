@@ -49,3 +49,25 @@
                                                                    :value 0.9}})]
     (is (= 0.9 (get-in state [:config :motor-babbling-prob])))
     (is (re-find #"Motor babbling" reply))))
+
+(deftest concepts-command-shows-summary
+  (let [state (-> (core/initial-state)
+                  (core/step {:type :belief
+                              :term [:atom "A"]
+                              :truth {:frequency 1.0 :confidence 0.9}}))
+        {:keys [reply]} (shell/handle-command state {:command :narsese-command
+                                                     :value {:command :concepts}})]
+    (is (re-find #"belief=true" reply))))
+
+(deftest questions-use-concept-tables
+  (let [state (-> (core/initial-state)
+                  (core/step {:type :belief
+                              :term [:a]
+                              :truth {:frequency 1.0 :confidence 0.9}})
+                  (core/step {:type :belief
+                              :term [:b]
+                              :occurrence-time 2
+                              :truth {:frequency 1.0 :confidence 0.9}}))
+        {:keys [reply]} (shell/handle-command state {:command :question
+                                                     :value {:term [:implication :prediction [:a] [:b]]}})]
+    (is (re-find #"Answer:" reply))))

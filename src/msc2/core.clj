@@ -5,10 +5,10 @@
   Later milestones thread concrete inference/decision functions into the same
   pipeline without changing the API exposed here."
   (:refer-clojure :exclude [step])
-  (:require [msc2.fifo :as fifo]
+  (:require [msc2.event :as event]
+            [msc2.fifo :as fifo]
             [msc2.inference :as inference]
-            [msc2.stamp :as stamp]
-            [msc2.truth :as truth]))
+            [msc2.memory :as memory]))
 
 (def ^:const default-config
   "Minimal configuration derived from MSC2's Config.h defaults. The values are
@@ -56,31 +56,25 @@
       (throw (ex-info "Input must declare :type either :belief or :goal."
                       {:input input})))))
 
-(defn- prepare-input
-  [state input]
-  (-> input
-      (update :truth truth/normalize)
-      (update :stamp stamp/normalize)
-      (update :occurrence-time #(or % (:time state)))
-      (assoc :queued-at (:time state)
-             :creation-time (:time state))))
-
-(defn- derive-with-new-event
-  [state event]
-  (let [existing (get-in state [:fifo :events])]
-    (->> existing
-         (filter #(< (:occurrence-time %) (:occurrence-time event)))
-         (map #(inference/belief-induction % event)))))
+(defn- record-deriveds [state derivations]
+  (reduce (fn [s impl]
+            (-> s
+                (update :derived conj impl)
+                (memory/record-derived impl)))
+          state
+          derivations))
 
 (defn- queue-belief [state event]
-  (let [derivations (derive-with-new-event state event)]
+  (let [{:keys [fifo pairs]} (fifo/enqueue (:fifo state) event)
+        derivations (map #(apply inference/belief-induction %) pairs)]
     (-> state
-        (update :derived into derivations)
-        (update :fifo fifo/enqueue event)
+        (assoc :fifo fifo)
         (update-in [:queues :belief] conj event)
+        (memory/record-spike event)
         (update :history conj {:time (:time state)
                                :stage :fifo/enqueue
                                :input (:term event)})
+        (record-deriveds derivations)
         (cond-> (seq derivations)
           (update :history conj {:time (:time state)
                                  :stage :induction/derived
@@ -91,10 +85,12 @@
   time so later stages can compute deltas."
   [state input]
   (if-let [queue-key (classify-input input)]
-    (let [event (prepare-input state input)]
+    (let [event (event/prepare state input)]
       (if (= queue-key :belief)
         (queue-belief state event)
-        (update-in state [:queues queue-key] conj event)))
+        (-> state
+            (update-in [:queues queue-key] conj event)
+            (memory/record-spike event))))
     state))
 
 (defn- log-cycle

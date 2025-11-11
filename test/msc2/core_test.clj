@@ -48,6 +48,17 @@
                    (core/step (assoc b :occurrence-time 2)))]
     (is (= 1 (count (:derived state'))))
     (let [impl (first (:derived state'))]
-      (is (= [:implication [:a] [:b]] (:term impl)))
+      (is (= [:implication :prediction [:a] [:b]] (:term impl)))
       (is (= 1 (:occurrence-time-offset impl)))
       (is (< (Math/abs (- 0.28223 (get-in impl [:truth :confidence]))) 1.0e-5)))))
+
+(deftest concept-spikes-track-latest-events
+  (let [state (core/initial-state)
+        state' (core/step state {:type :belief
+                                 :term [:atom "A"]
+                                 :truth {:frequency 1.0 :confidence 0.9}})
+        state'' (core/step state' {:type :goal
+                                   :term [:atom "G"]
+                                   :truth {:frequency 1.0 :confidence 0.9}})]
+    (is (some? (get-in state'' [:concepts [:atom "A"] :belief-spike])))
+    (is (some? (get-in state'' [:concepts [:atom "G"] :goal-spike])))))

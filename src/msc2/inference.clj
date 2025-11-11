@@ -18,7 +18,9 @@
         induced (-> (truth/induction (:truth later) projected)
                     truth/eternalize)
         {:keys [stamp creation-time]} (stamp/derive-stamp earlier later)]
-    {:term [:implication (:term earlier) (:term later)]
+    {:term [:implication :prediction (:term earlier) (:term later)]
+     :consequent (:term later)
+     :target-term (:term later)
      :truth induced
      :stamp stamp
      :occurrence-time-offset (- (:occurrence-time later)

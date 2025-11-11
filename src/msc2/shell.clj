@@ -3,6 +3,7 @@
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [msc2.core :as core]
+            [msc2.memory :as memory]
             [msc2.narsese :as narsese]))
 
 (defn- sentence->input [{:keys [type term truth dt channel]}]
@@ -43,9 +44,23 @@
     :motorbabbling (let [state' (assoc-in state [:config :motor-babbling-prob] value)]
                      {:state state'
                       :reply (format "Motor babbling set to %.2f" value)})
-    :concepts {:state state :reply "Concept dump not implemented yet."}
+    :concepts {:state state
+               :reply (memory/concepts-summary (:concepts state))}
     :unknown {:state state :reply (format "Unknown command: %s" raw)}
     {:state state :reply (format "Unhandled command: %s" command)}))
+
+(defn- answer-question [state {:keys [term]}]
+  (let [[_ cop antecedent consequent] term
+        concept (get-in state [:concepts consequent])]
+    (if (and (= :prediction cop) concept)
+      (if-let [entry (first (get-in concept [:tables [:prediction antecedent]]))]
+        {:state state
+         :reply (format "Answer: %s Truth: %.6f %.6f"
+                        (second (:term entry))
+                        (get-in entry [:truth :frequency])
+                        (get-in entry [:truth :confidence]))}
+        {:state state :reply "Answer: None."})
+      {:state state :reply "Answer: None."})))
 
 (defn parse-line
   "Interpret a user-provided line."
@@ -80,8 +95,7 @@
     :info {:state state :reply (or message "(info)")}
     :error {:state state
             :reply (format "Parse error: %s" (or message "unknown"))}
-    :question {:state state
-               :reply (format "Question handling not implemented for %s" (:term value))}
+    :question (answer-question state value)
     :narsese-command (apply-narsese-command state value)
     :input (try
              (let [state' (core/step state value)

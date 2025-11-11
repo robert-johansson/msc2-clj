@@ -11,20 +11,23 @@
    {:capacity capacity
     :events []}))
 
-(defn enqueue
-  [{:keys [capacity events] :as fifo} event]
-  (let [events' (conj events event)
-        overflow (max 0 (- (count events') capacity))]
-    (assoc fifo :events (if (pos? overflow)
-                          (subvec events' overflow)
-                          events'))))
+(defn- trim-events [events capacity]
+  (if (>= (count events) capacity)
+    (subvec events 1)
+    events))
 
-(defn pairs
-  "Return all ordered pairs (older -> newer) that respect occurrence-time ordering."
-  [{:keys [events]}]
-  (for [i (range (count events))
-        j (range (inc i) (count events))
-        :let [older (events i)
-              newer (events j)]
-        :when (< (:occurrence-time older) (:occurrence-time newer))]
-    [older newer]))
+(defn enqueue
+  "Insert `event` into the buffer and return {:fifo updated :pairs new-pairs}."
+  [{:keys [capacity events] :as fifo} event]
+  (let [base (trim-events events capacity)
+        pairs (->> base
+                   (filter #(< (:occurrence-time %) (:occurrence-time event)))
+                   (map #(vector % event))
+                   vec)
+        updated (conj base event)]
+    {:fifo (assoc fifo :events updated)
+     :pairs pairs}))
+
+(defn events
+  [fifo]
+  (:events fifo))

@@ -15,7 +15,8 @@
                :creation-time 2}
         impl (inference/belief-induction earlier later)]
     (is (= 1 (:occurrence-time-offset impl)))
-    (is (= [:implication [:a] [:b]] (:term impl)))
+    (is (= [:implication :prediction [:a] [:b]] (:term impl)))
+    (is (= [:b] (:target-term impl)))
     (is (= [1 2] (get-in impl [:stamp :evidence])))
     (is (= 2 (:creation-time impl)))
     (is (= 1.0 (get-in impl [:truth :frequency])))
