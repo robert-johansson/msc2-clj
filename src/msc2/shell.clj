@@ -1,15 +1,54 @@
 (ns msc2.shell
-  "Simple EDN-driven shell to exercise the MSC2 reducer during Milestone 1.
-
-  Later milestones will replace the EDN stub with a full `.nal` interpreter,
-  but exposing a CLI now keeps the project runnable end-to-end."
+  "Shell that accepts either EDN maps or a small subset of `.nal` sentences."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
-            [msc2.core :as core]))
+            [msc2.core :as core]
+            [msc2.narsese :as narsese]))
+
+(defn- sentence->input [{:keys [type term truth dt channel]}]
+  (case type
+    :belief {:type :belief :term term :truth truth :dt dt :channel channel}
+    :goal {:type :goal :term term :truth truth :dt dt :channel channel}
+    :question nil
+    nil))
+
+(defn- parse-edn [trimmed]
+  (try {:command :input
+        :value (edn/read-string trimmed)}
+       (catch Exception _ nil)))
+
+(defn- sentence->command [sentence]
+  (case (:type sentence)
+    :question {:command :question :value sentence}
+    (if-let [event (sentence->input sentence)]
+      {:command :input :value event}
+      {:command :error :message "Unsupported sentence"})))
+
+(defn- parse-narsese-line [line]
+  (try
+    (when-let [parsed (narsese/parse-line line)]
+      (case (:kind parsed)
+        :sentence (sentence->command parsed)
+        :command {:command :narsese-command
+                  :value parsed}))
+    (catch Exception ex
+      {:command :error
+       :message (.getMessage ex)})))
+
+(defn- apply-narsese-command [state {:keys [command index operation value raw]}]
+  (case command
+    :setopname (let [state' (assoc-in state [:shell :operations index] operation)]
+                 {:state state'
+                  :reply (format "Set op %d to %s" index operation)})
+    :motorbabbling (let [state' (assoc-in state [:config :motor-babbling-prob] value)]
+                     {:state state'
+                      :reply (format "Motor babbling set to %.2f" value)})
+    :concepts {:state state :reply "Concept dump not implemented yet."}
+    :unknown {:state state :reply (format "Unknown command: %s" raw)}
+    {:state state :reply (format "Unhandled command: %s" command)}))
 
 (defn parse-line
-  "Interpret a user-provided line. Returns a command map consumed by
-  `handle-command`."
+  "Interpret a user-provided line."
   [line]
   (cond
     (nil? line) {:command :quit}
@@ -18,11 +57,18 @@
                 lowered (str/lower-case trimmed)]
             (cond
               (#{"quit" "exit"} lowered) {:command :quit}
-              :else (try {:command :input
-                          :value (edn/read-string trimmed)}
-                         (catch Exception ex
-                           {:command :error
-                            :message (.getMessage ex)}))))))
+              :else (let [first-char (first trimmed)
+                          edn-first? (and first-char (#{\{ \[ \( \" \: \#} first-char))
+                          primary (if edn-first?
+                                    (parse-edn trimmed)
+                                    (parse-narsese-line trimmed))
+                          fallback (if edn-first?
+                                     (parse-narsese-line trimmed)
+                                     (parse-edn trimmed))]
+                      (or primary
+                          fallback
+                          {:command :error
+                           :message "Unrecognized input"}))))))
 
 (defn handle-command
   "Apply a parsed command to the running state. Returns a map containing at
@@ -31,8 +77,12 @@
   (case command
     :noop {:state state :reply "(noop)"}
     :quit {:state state :quit? true :reply "Bye."}
+    :info {:state state :reply (or message "(info)")}
     :error {:state state
             :reply (format "Parse error: %s" (or message "unknown"))}
+    :question {:state state
+               :reply (format "Question handling not implemented for %s" (:term value))}
+    :narsese-command (apply-narsese-command state value)
     :input (try
              (let [state' (core/step state value)
                    summary (if value (:type value) :tick)]

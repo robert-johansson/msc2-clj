@@ -20,3 +20,11 @@
         c (stamp/normalize [4 5])]
     (is (stamp/overlap? a b))
     (is (not (stamp/overlap? a c)))))
+
+(deftest derive-merges-stamps-and-creation-time
+  (let [derived (stamp/derive-stamp {:stamp (stamp/normalize [1 2])
+                                     :creation-time 5}
+                                    {:stamp (stamp/normalize [2 3 4])
+                                     :creation-time 7})]
+    (is (= 7 (:creation-time derived)))
+    (is (= [1 2 2 3 4] (get-in derived [:stamp :evidence])))))

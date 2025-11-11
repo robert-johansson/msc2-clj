@@ -65,3 +65,15 @@
   "Convenience equality predicate for tests."
   [stamp-a stamp-b]
   (= (base stamp-a) (base stamp-b)))
+
+(defn derive-stamp
+  "Combine two events' stamps/creation times (DERIVATION_STAMP macro analogue).
+
+  Accepts maps containing `:stamp` and optionally `:creation-time`. Returns a map
+  with `:stamp` merged via `make` and `:creation-time` set to the max."
+  [lhs rhs]
+  (let [a (normalize (:stamp lhs))
+        b (normalize (:stamp rhs))]
+    {:stamp (make a b)
+     :creation-time (max (long (or (:creation-time lhs) 0))
+                         (long (or (:creation-time rhs) 0)))}))

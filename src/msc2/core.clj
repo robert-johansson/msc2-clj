@@ -5,7 +5,9 @@
   Later milestones thread concrete inference/decision functions into the same
   pipeline without changing the API exposed here."
   (:refer-clojure :exclude [step])
-  (:require [msc2.stamp :as stamp]
+  (:require [msc2.fifo :as fifo]
+            [msc2.inference :as inference]
+            [msc2.stamp :as stamp]
             [msc2.truth :as truth]))
 
 (def ^:const default-config
@@ -36,7 +38,9 @@
     :concepts {}
     :queues {:belief empty-queue
              :goal empty-queue}
-    :fifo []
+    :fifo (fifo/empty-buffer (:fifo-capacity config))
+    :derived []
+    :shell {:operations {}}
     :history []}))
 
 (defn- classify-input
@@ -58,15 +62,39 @@
       (update :truth truth/normalize)
       (update :stamp stamp/normalize)
       (update :occurrence-time #(or % (:time state)))
-      (assoc :queued-at (:time state))))
+      (assoc :queued-at (:time state)
+             :creation-time (:time state))))
+
+(defn- derive-with-new-event
+  [state event]
+  (let [existing (get-in state [:fifo :events])]
+    (->> existing
+         (filter #(< (:occurrence-time %) (:occurrence-time event)))
+         (map #(inference/belief-induction % event)))))
+
+(defn- queue-belief [state event]
+  (let [derivations (derive-with-new-event state event)]
+    (-> state
+        (update :derived into derivations)
+        (update :fifo fifo/enqueue event)
+        (update-in [:queues :belief] conj event)
+        (update :history conj {:time (:time state)
+                               :stage :fifo/enqueue
+                               :input (:term event)})
+        (cond-> (seq derivations)
+          (update :history conj {:time (:time state)
+                                 :stage :induction/derived
+                                 :input (map :term derivations)})))))
 
 (defn- enqueue-input
   "Place the input event into the appropriate queue, tagging it with the cycle
   time so later stages can compute deltas."
   [state input]
   (if-let [queue-key (classify-input input)]
-    (update-in state [:queues queue-key]
-               conj (prepare-input state input))
+    (let [event (prepare-input state input)]
+      (if (= queue-key :belief)
+        (queue-belief state event)
+        (update-in state [:queues queue-key] conj event)))
     state))
 
 (defn- log-cycle

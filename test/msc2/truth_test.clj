@@ -50,6 +50,16 @@
       (is (approx= 0.8 (:frequency sd)))
       (is (approx= (* 0.7 truth/reliance 0.8) (:confidence sd))))))
 
+(deftest induction-parity-with-simple-implication
+  (testing "Reproduce C log values for <A =/> B> using projection + induction + eternalize"
+    (let [a {:frequency 1.0 :confidence 0.9}
+          b {:frequency 1.0 :confidence 0.9}
+          projected-a (truth/projection a 1 2)
+          conclusion (-> (truth/induction b projected-a)
+                         truth/eternalize)]
+      (is (= 1.0 (:frequency conclusion)))
+      (is (approx= 0.28223 (:confidence conclusion) 1.0e-5)))))
+
 (deftest equality-and-normalization
   (is (truth/equal? {:frequency 1.0 :confidence 0.5}
                     {:frequency 1.0 :confidence 0.5}))

@@ -9,6 +9,16 @@
   (is (= {:command :input :value {:type :belief}}
          (shell/parse-line "{:type :belief}"))))
 
+(deftest parse-line-narsese-sentences
+  (let [{:keys [command value]} (shell/parse-line "A. :|:")]
+    (is (= :input command))
+    (is (= :belief (:type value)))
+    (is (= ":|:" (:channel value))))
+  (let [{:keys [command value]} (shell/parse-line "<A =/> B>?")]
+    (is (= :question command))
+    (is (= [:implication :prediction [:atom "A"] [:atom "B"]]
+           (:term value)))))
+
 (deftest handle-command-updates-state
   (let [state (core/initial-state)
         {:keys [state reply]} (shell/handle-command state {:command :input
@@ -24,3 +34,18 @@
         response (shell/handle-command state {:command :input :value {}})]
     (is (= 0 (:time (:state response))))
     (is (re-find #"Input rejected" (:reply response)))))
+
+(deftest narsese-commands-update-state
+  (let [state (core/initial-state)
+        {:keys [state reply]} (shell/handle-command state {:command :narsese-command
+                                                           :value {:command :setopname
+                                                                   :index 1
+                                                                   :operation "^left"}})]
+    (is (= "^left" (get-in state [:shell :operations 1])))
+    (is (re-find #"Set op" reply)))
+  (let [state (core/initial-state)
+        {:keys [state reply]} (shell/handle-command state {:command :narsese-command
+                                                           :value {:command :motorbabbling
+                                                                   :value 0.9}})]
+    (is (= 0.9 (get-in state [:config :motor-babbling-prob])))
+    (is (re-find #"Motor babbling" reply))))

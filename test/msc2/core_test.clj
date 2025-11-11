@@ -11,6 +11,7 @@
     (is (= 0 (:time state)))
     (is (queue? (get-in state [:queues :belief])))
     (is (queue? (get-in state [:queues :goal])))
+    (is (= [] (:derived state)))
     (is (vector? (:history state)))))
 
 (deftest step-increments-time-and-logs
@@ -34,3 +35,19 @@
       (is (= (:truth event) (:truth queued)))
       (is (= 1 (:occurrence-time queued)))
       (is (= [] (get-in queued [:stamp :evidence]))))))
+
+(deftest belief-induction-occurs-when-ordered-events-arrive
+  (let [state (core/initial-state)
+        a {:type :belief
+           :term [:a]
+           :truth {:frequency 1.0 :confidence 0.9}}
+        b {:type :belief
+           :term [:b]
+           :truth {:frequency 1.0 :confidence 0.9}}
+        state' (-> (core/step state a)
+                   (core/step (assoc b :occurrence-time 2)))]
+    (is (= 1 (count (:derived state'))))
+    (let [impl (first (:derived state'))]
+      (is (= [:implication [:a] [:b]] (:term impl)))
+      (is (= 1 (:occurrence-time-offset impl)))
+      (is (< (Math/abs (- 0.28223 (get-in impl [:truth :confidence]))) 1.0e-5)))))
