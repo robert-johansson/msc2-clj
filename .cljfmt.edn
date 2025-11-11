@@ -1,0 +1,2 @@
+{:remove-multiple-non-indenting-spaces? true
+ :remove-surrounding-whitespace?        true}

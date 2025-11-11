@@ -4,6 +4,7 @@
 Keep the root lean: `deps.edn`, this guide, and the MSC2 reference. Place production code under `src/msc2` (e.g., `src/msc2/core.clj` for the kernel loop, `src/msc2/engine/truth.clj` for the calculus) and mirror the C components one namespace at a time. Tests live in `test/msc2`, mirroring the namespaces. Vendor the upstream C reference as `external/msc2` (git submodule pinned to the MSC2 branch) and store experiment artifacts or CSV baselines in `resources/experiments`. Keep lightweight harness scripts in `scripts/micro_*` so each file maps to a MSC2 regression.
 
 ## Build, Test, and Development Commands
+- Run `clojure_inspect_project` for the "Clojure Project Info" snapshot before starting work on a new task.
 - `clj -M:repl` — interactive REPL bound to `src/msc2` for probing kernels and harnesses.
 - `clj -M:test` — runs every `clojure.test` suite, including micro parity checks.
 - `clj -M:run :scenario baseline` — entry point for experiment drivers; pass MSC2-style scenario keywords.
