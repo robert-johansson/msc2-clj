@@ -45,3 +45,9 @@
             "Input: <A =/> B>?"
             "Answer: <A =/> B>. creationTime=2 Truth: frequency=1.000000, confidence=0.282230"]
            lines))))
+
+(deftest simple-implication4-produces-sequence-rule
+  (let [lines (script-lines "simple_implication4.nal")]
+    (is (some #(re-find #"<\(A &/ \^left\) =/> G>" %) lines))
+    (is (some #(re-find #"\^left executed" %) lines))
+    (is (not-any? #(re-find #"<A =/> A>" %) lines))))

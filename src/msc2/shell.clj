@@ -89,17 +89,25 @@
   (let [concepts (vals (:concepts state))
         concept-count (count concepts)
         avg-priority (double (or (avg (keep :priority concepts)) 0.0))
-        belief-count (count (get-in state [:queues :belief :events]))
-        goal-count (count (get-in state [:queues :goal :events]))]
+        concept-usefulness 0.0
+        goal-events (get-in state [:queues :goal :events])
+        goal-count (count goal-events)
+        avg-goal-priority (double (or (avg (keep :priority goal-events)) 0.0))]
     (str/join
      "\n"
      [(str "Statistics")
       "----------"
+      "countConceptsMatchedTotal:\t0"
+      "countConceptsMatchedMax:\t0"
+      "countConceptsMatchedAverage:\t0"
       (format "currentTime:\t\t\t%d" (:time state))
       (format "total concepts:\t\t\t%d" concept-count)
       (format "current average concept priority:\t%.6f" avg-priority)
-      (format "current belief events:\t\t%d" belief-count)
-      (format "current goal events:\t\t%d" goal-count)])))
+      (format "current average concept usefulness:\t%.6f" concept-usefulness)
+      (format "curring goal events cnt:\t\t%d" goal-count)
+      (format "current average goal event priority:\t%.6f" avg-goal-priority)
+      "Maximum chain length in concept hashtable: 1"
+      "Maximum chain length in atoms hashtable: 1"])))
 
 (defn- sentence->command [sentence]
   (case (:type sentence)
@@ -169,6 +177,9 @@
                 lowered (str/lower-case trimmed)]
             (cond
               (#{"quit" "exit"} lowered) {:command :quit}
+              (re-matches #"[0-9]+" trimmed)
+              {:command :cycles
+               :value (Long/parseLong trimmed)}
               :else (let [first-char (first trimmed)
                           edn-first? (and first-char (#{\{ \[ \( \" \: \#} first-char))
                           primary (if edn-first?
@@ -185,20 +196,43 @@
 (defn- decision-lines [old-state new-state]
   (let [old-count (count (:decisions old-state))
         new-decisions (drop old-count (:decisions new-state))]
-    (map (fn [{:keys [operation source desire]}]
-           (format "%s executed desire=%.3f source=%s"
-                   (or operation "^op")
-                   (double (or desire 0.0))
-                   (name (or source :unknown))))
-         new-decisions)))
+    (mapcat
+     (fn [{:keys [operation source desire rule goal]}]
+       (let [rule-truth (:truth rule)
+             dt (double (or (:occurrence-time-offset rule) 0.0))
+             precondition-term (if goal
+                                 (term->fragment (:term goal) (:type goal) (:channel goal))
+                                 "None")
+             precondition-truth (or (:truth goal) narsese/default-truth)
+             precondition-time (long (or (:occurrence-time goal) (:time new-state) 0))]
+         [(format "decision expectation=%.6f implication: %s Truth: frequency=%.6f confidence=%.6f dt=%.6f precondition: %s Truth: frequency=%.6f confidence=%.6f occurrenceTime=%d"
+                  (double (or desire 0.0))
+                  (term->fragment (:term rule) :belief nil)
+                  (get rule-truth :frequency 0.0)
+                  (get rule-truth :confidence 0.0)
+                  dt
+                  precondition-term
+                  (get precondition-truth :frequency 0.0)
+                  (get precondition-truth :confidence 0.0)
+                  precondition-time)
+          (format "%s executed with args "
+                  (or operation "^op"))]))
+     new-decisions)))
+
+(defn- advance-cycles [state n]
+  (loop [state state
+         remaining n]
+    (if (pos? remaining)
+      (recur (core/step state) (dec remaining))
+      state)))
 
 (defn handle-command
   "Apply a parsed command to the running state. Returns a map containing at
   least `:state` and optionally `:reply` or `:quit?`."
   [state {:keys [command value message] :as cmd}]
   (case command
-    :noop {:state state :reply "(noop)"}
-    :quit {:state state :quit? true :reply "Bye."}
+    :noop {:state state}
+    :quit {:state state :quit? true :reply (str (stats-summary state) "\nBye.")}
     :info {:state state :reply (or message "(info)")}
     :error {:state state
             :reply (format "Parse error: %s" (or message "unknown"))}
@@ -208,6 +242,11 @@
                 {:state state'
                  :reply (str/join "\n" lines)})
     :narsese-command (apply-narsese-command state value)
+    :cycles (let [n (max 0 (long value))
+                  state' (advance-cycles state n)]
+              {:state state'
+               :reply (format "performing %d inference steps:\ndone with %d additional inference steps."
+                              n n)})
     :input (try
              (let [prepared (when value (prepare-input-event state value))
                    state' (core/step state value)

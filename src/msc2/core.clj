@@ -9,9 +9,12 @@
             [msc2.deduction :as ded]
             [msc2.event :as event]
             [msc2.fifo :as fifo]
-            [msc2.queue :as q]
             [msc2.inference :as inference]
-            [msc2.memory :as memory]))
+            [msc2.memory :as memory]
+            [msc2.queue :as q]
+            [msc2.stamp :as stamp]
+            [msc2.term :as term]
+            [msc2.truth :as truth]))
 
 (def ^:const default-config
   "Minimal configuration derived from MSC2's Config.h defaults. The values are
@@ -26,7 +29,8 @@
    :event-durability 0.95
    :concept-durability 0.98
    :event-priority-threshold 0.05
-   :concept-priority-threshold 0.02})
+   :concept-priority-threshold 0.02
+   :max-induction-gap 16})
 
 (def ^:private empty-queue
   "Persistent queue instance used for both belief and goal buffers."
@@ -56,6 +60,56 @@
       :anticipations []
       :shell {:operations {}}
       :history []})))
+
+(defn- op-event? [event]
+  (term/op? (:term event)))
+
+(defn- within-gap? [earlier later gap]
+  (if (and (:occurrence-time earlier) (:occurrence-time later))
+    (<= (Math/abs (double (- (:occurrence-time later)
+                             (:occurrence-time earlier))))
+        gap)
+    true))
+
+(defn- valid-induction-pair? [[earlier later] gap]
+  (and (= :belief (:type earlier))
+       (= :belief (:type later))
+       (not (op-event? earlier))
+       (not (op-event? later))
+       (within-gap? earlier later gap)))
+
+(defn- sequence-candidates [events]
+  (->> events
+       (partition 2 1)
+       (keep (fn [[a b]]
+               (when (and (= :belief (:type a))
+                          (= :belief (:type b))
+                          (not (op-event? a))
+                          (op-event? b))
+                 (let [{:keys [stamp creation-time]} (stamp/derive-stamp a b)
+                       truth (truth/intersection (:truth a) (:truth b))]
+                   {:type :belief
+                    :term (term/seq-term (:term a) (:term b))
+                    :truth truth
+                    :stamp stamp
+                    :creation-time creation-time
+                    :occurrence-time (:occurrence-time b)}))))))
+
+(defn- sequence-derivations [fifo event gap]
+  (let [prior (->> (butlast (or (seq (fifo/events fifo)) []))
+                   (filter #(within-gap? % event gap))
+                   vec)
+        seq-events (sequence-candidates prior)]
+    (map #(inference/belief-induction % event)
+         (filter #(within-gap? % event gap) seq-events))))
+
+(defn- term-has-operation? [term]
+  (cond
+    (nil? term) false
+    (term/op? term) true
+    (vector? term) (some term-has-operation? (rest term))
+    (sequential? term) (some term-has-operation? term)
+    :else false))
 
 (defn- classify-input
   "Decide which queue the incoming event should enter.
@@ -132,8 +186,8 @@
                                      :rule (:rule decision)}))
 
 (defn- current-goal [state]
-  (or (first (:subgoals state))
-      (first (q/all-events (get-in state [:queues :goal])))))
+  (or (first (q/all-events (get-in state [:queues :goal])))
+      (first (:subgoals state))))
 
 (defn- drop-current-subgoal [state goal]
   (if (and (seq (:subgoals state))
@@ -182,8 +236,12 @@
       state)))
 
 (defn- queue-belief [state event]
-  (let [{:keys [fifo pairs]} (fifo/enqueue (:fifo state) event)
-        derivations (map #(apply inference/belief-induction %) pairs)]
+  (let [gap (:max-induction-gap (:config state))
+        {:keys [fifo pairs]} (fifo/enqueue (:fifo state) event)
+        valid-pairs (filter #(valid-induction-pair? % gap) pairs)
+        derivations (map #(apply inference/belief-induction %) valid-pairs)
+        seq-derivations (sequence-derivations fifo event gap)
+        all-derivations (seq (concat derivations seq-derivations))]
     (-> state
         (assoc :fifo fifo)
         (update-in [:queues :belief] q/enqueue event)
@@ -191,12 +249,12 @@
         (update :history conj {:time (:time state)
                                :stage :fifo/enqueue
                                :input (:term event)})
-        (record-deriveds derivations)
+        (record-deriveds (or all-derivations []))
         (produce-predictions event)
-        (cond-> (seq derivations)
+        (cond-> all-derivations
           (update :history conj {:time (:time state)
                                  :stage :induction/derived
-                                 :input (map :term derivations)})))))
+                                 :input (map :term all-derivations)})))))
 
 (defn- enqueue-input
   "Place the input event into the appropriate queue, tagging it with the cycle

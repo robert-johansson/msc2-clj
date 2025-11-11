@@ -36,6 +36,12 @@
     (is (= 0 (:time (:state response))))
     (is (re-find #"Input rejected" (:reply response)))))
 
+(deftest numeric-input-advances-cycles
+  (let [state (core/initial-state)
+        {:keys [state reply]} (shell/handle-command state {:command :cycles :value 3})]
+    (is (= 3 (:time state)))
+    (is (re-find #"performing 3" reply))))
+
 (deftest narsese-commands-update-state
   (let [state (core/initial-state)
         {:keys [state reply]} (shell/handle-command state {:command :narsese-command

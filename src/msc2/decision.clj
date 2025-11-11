@@ -13,11 +13,12 @@
 (defn candidates
   "Return candidate rules for the given goal."
   [concepts goal operations]
-  (let [valid-ops (set (vals operations))]
+  (let [valid-ops (when (seq operations)
+                    (set (vals operations)))]
     (for [rule (memory/rules-for-consequent concepts (:term goal))
           :let [[_ _ antecedent _] (:term rule)
                 op (operation-token antecedent)]
-          :when (and op (valid-ops op))]
+          :when (and op (or (nil? valid-ops) (valid-ops op)))]
       {:operation op
        :rule rule
        :goal goal
