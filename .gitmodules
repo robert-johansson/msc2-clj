@@ -2,3 +2,6 @@
 	path = external/msc2
 	url = https://github.com/robert-johansson/MSC2.git
 	branch = MSC2
+[submodule "docs/msc2-latex"]
+	path = docs/msc2-latex
+	url = https://git.overleaf.com/6913509063142b252ef71b7f
