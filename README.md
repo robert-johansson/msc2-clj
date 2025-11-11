@@ -61,3 +61,13 @@ If GraalVM (with the `native-image` component) is on your `PATH`, you can build 
    ```
 
 The script uses the same native-image flags recommended by [clj-easy/graalvm-clojure](https://github.com/clj-easy/graalvm-clojure), so if you hit reflection warnings you can adjust the command (or add reflection configs) as needed.
+
+## Experiment Replication
+
+Experiment 1 (simple discrimination) can be reproduced directly via Clojure:
+
+```bash
+clj -M -m msc2.experiments.exp1
+```
+
+This runs baseline/training/testing phases, prints per-block accuracy, and writes CSV logs to `experiments/exp1_trials.csv` and `experiments/exp1_truths.csv`—matching the artifacts from the C reference scripts.
