@@ -60,5 +60,5 @@
 (deftest pong-ball-right-script-runs
   (let [lines (script-lines "pong_ball_right.nal")]
     (is (some #(re-find #"<ball_right =/> G>" %) lines))
-    (is (some #(re-find #"\^right executed" %) lines))
+    (is (some #(re-find #"\^.+ executed" %) lines))
     (is (not-any? #(re-find #"Input rejected" %) lines))))

@@ -13,8 +13,10 @@
           :main-opts   ["-m" "kaocha.runner"]}
   :fmt   {:replace-deps {cljfmt/cljfmt {:mvn/version "0.9.2"}}
           :main-opts    ["-m" "cljfmt.main"]}
-  :lint  {:replace-deps {clj-kondo/clj-kondo {:mvn/version "2024.03.13"}}
-          :main-opts    ["-m" "clj-kondo.main"]}
+ :lint  {:replace-deps {clj-kondo/clj-kondo {:mvn/version "2024.03.13"}}
+         :main-opts    ["-m" "clj-kondo.main"]}
+  :build {:deps {io.github.clojure/tools.build {:git/tag "v0.9.6" :git/sha "8e78bcc"}}
+          :ns-default build}
   :run   {:main-opts ["-m" "msc2.shell"]}
   :mcp   {:deps {org.slf4j/slf4j-nop {:mvn/version "2.0.16"}
                  com.bhauman/clojure-mcp {:git/url "https://github.com/bhauman/clojure-mcp.git"

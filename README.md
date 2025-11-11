@@ -33,3 +33,31 @@ For detailed architectural notes and future plans see:
 - `docs/architecture.md`, `docs/data_model.md`, `docs/msc2-latex/main.tex`
 - `CLOJURE_PORT.md` – idiomatic Clojure strategy
 - `CLOJURE_PORT_PLAN.md` – milestone checklist
+
+## Native Binary via GraalVM
+
+If GraalVM (with the `native-image` component) is on your `PATH`, you can build a standalone `./NAR` binary for the Clojure port.
+
+1. **Build the uberjar** (tools.build):
+
+   ```bash
+   clj -T:build uber
+   ```
+
+   This writes `target/msc2-standalone.jar`.
+
+2. **Invoke the helper script** (wraps `native-image`):
+
+   ```bash
+   scripts/build_native.sh
+   ```
+
+   Pass any extra Graal flags after the script name (e.g., `scripts/build_native.sh -O3`).
+
+3. **Run the binary** just like the C reference:
+
+   ```bash
+   ./target/NAR < external/msc2/tests/simple_implication.nal
+   ```
+
+The script uses the same native-image flags recommended by [clj-easy/graalvm-clojure](https://github.com/clj-easy/graalvm-clojure), so if you hit reflection warnings you can adjust the command (or add reflection configs) as needed.
