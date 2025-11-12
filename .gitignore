@@ -1,3 +1,5 @@
 .cpcache/
 .nrepl-port
 .clj-kondo/.cache/
+experiments/micro/*.log
+experiments/micro/*.derived*

@@ -45,9 +45,11 @@ milestone sequence intact.
    - Update `memory/record-derived` (and concept tables) so nested antecedents
      land in the right prediction slots.
 4. **Regression harnesses.**
-   - Build `.nal` fixtures under `experiments/micro/` that emulate Exp 3 trials.
-   - Script a diff runner that feeds each fixture through both shells
-     (`clj -M -m msc2.shell` vs. `./external/msc2/NAR shell`).
+   - Build `.nal` fixtures under `resources/experiments/micro/` that emulate Exp 3
+     micro trials (sample + comparison + op + goal).
+   - Script a diff runner (`scripts/micro_exp3_diff.sh`) that feeds each fixture
+     through both shells (`clj -M -m msc2.shell` vs. `./external/msc2/NAR shell`)
+     and compares the derived `<... =/> G>` terms.
 5. **Experiment 3 verification.**
    - Rerun `clj -M -m msc2.experiments.exp3` once long sequences fire.
    - Compare `exp3_trials.csv`/`exp3_truths.csv` with the C reference outputs,

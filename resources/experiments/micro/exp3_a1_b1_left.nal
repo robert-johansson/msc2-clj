@@ -1,0 +1,11 @@
+*reset
+*volume=100
+*babblingops=1
+*setopname 1 ^left
+*motorbabbling=1.0
+
+<A1 --> [sample]>. :|:
+<B1 --> [left]>. :|:
+G! :|:
+G. :|:
+100
