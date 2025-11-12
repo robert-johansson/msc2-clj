@@ -1,0 +1,19 @@
+phase,block,term,frequency,confidence
+baseline,1,<(<A1 --> [left]> &/ ^left) =/> G>,0.000000,0.000000
+baseline,1,<(<A1 --> [right]> &/ ^right) =/> G>,0.000000,0.000000
+baseline,2,<(<A1 --> [left]> &/ ^left) =/> G>,0.000000,0.000000
+baseline,2,<(<A1 --> [right]> &/ ^right) =/> G>,0.000000,0.000000
+baseline,3,<(<A1 --> [left]> &/ ^left) =/> G>,0.000000,0.000000
+baseline,3,<(<A1 --> [right]> &/ ^right) =/> G>,0.000000,0.000000
+training,1,<(<A1 --> [left]> &/ ^left) =/> G>,1.000000,0.520889
+training,1,<(<A1 --> [right]> &/ ^right) =/> G>,1.000000,0.576091
+training,2,<(<A1 --> [left]> &/ ^left) =/> G>,1.000000,0.731038
+training,2,<(<A1 --> [right]> &/ ^right) =/> G>,1.000000,0.749360
+training,3,<(<A1 --> [left]> &/ ^left) =/> G>,1.000000,0.813042
+training,3,<(<A1 --> [right]> &/ ^right) =/> G>,1.000000,0.822083
+testing,1,<(<A1 --> [left]> &/ ^left) =/> G>,1.000000,0.813042
+testing,1,<(<A1 --> [right]> &/ ^right) =/> G>,1.000000,0.822083
+testing,2,<(<A1 --> [left]> &/ ^left) =/> G>,1.000000,0.813042
+testing,2,<(<A1 --> [right]> &/ ^right) =/> G>,1.000000,0.822083
+testing,3,<(<A1 --> [left]> &/ ^left) =/> G>,1.000000,0.813042
+testing,3,<(<A1 --> [right]> &/ ^right) =/> G>,1.000000,0.822083

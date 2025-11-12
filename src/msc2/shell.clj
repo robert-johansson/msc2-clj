@@ -163,18 +163,40 @@
          "\n//*done")
     (str "//*" label "\n//*done")))
 
+(defn- trace-event->fragment [event]
+  (when event
+    (format "%s@%d"
+            (term->fragment (:term event) (:type event) (:channel event))
+            (long (or (:occurrence-time event) 0)))))
+
+(defn- trace-spike->fragment [[term {:keys [belief-spike]}]]
+  (when belief-spike
+    (format "%s@%d"
+            (term->fragment term :belief (:channel belief-spike))
+            (long (or (:occurrence-time belief-spike) 0)))))
+
+(defn- trace-lines [state]
+  (when (get-in state [:shell :trace?])
+    (let [fifo-lines (->> (get-in state [:fifo :events])
+                          (take-last 5)
+                          (map trace-event->fragment)
+                          (remove nil?))
+          spike-lines (->> (:concepts state)
+                           (map trace-spike->fragment)
+                           (remove nil?)
+                           (take-last 5))]
+      (-> []
+          (cond-> (seq fifo-lines)
+            (conj (str "trace fifo: " (str/join " | " fifo-lines))))
+          (cond-> (seq spike-lines)
+            (conj (str "trace spikes: " (str/join " | " spike-lines))))))))
+
 (defn- sentence->command [sentence]
   (case (:type sentence)
     :question {:command :question :value sentence}
     (if-let [event (sentence->input sentence)]
       {:command :input :value event}
       {:command :error :message "Unsupported sentence"})))
-
-(defn- antecedent->precondition [antecedent]
-  (cond
-    (nil? antecedent) nil
-    (term/sequence? antecedent) (antecedent->precondition (second antecedent))
-    :else antecedent))
 
 (defn- parse-narsese-line [line]
   (try
@@ -190,9 +212,11 @@
 (defn- apply-narsese-command [state {:keys [command index operation value raw]}]
   (case command
     :reset (let [ops (get-in state [:shell :operations])
+                 trace? (get-in state [:shell :trace?])
                  config (:config state)
                  fresh (-> (core/initial-state config)
-                           (assoc-in [:shell :operations] ops))]
+                           (assoc-in [:shell :operations] ops)
+                           (assoc-in [:shell :trace?] (boolean trace?)))]
              {:state fresh
               :reply "State reset."})
     :stats {:state state
@@ -218,6 +242,11 @@
                                     (assoc-in [:shell :motor-babbling-default] value))]
                      {:state state'
                       :reply (format "Motor babbling set to %.2f" value)})
+    :trace (let [state' (assoc-in state [:shell :trace?] (boolean value))]
+             {:state state'
+              :reply (if (get-in state' [:shell :trace?])
+                       "Trace logging enabled"
+                       "Trace logging disabled")})
     :concepts {:state state
                :reply (memory/concepts-summary (:concepts state))}
     :cycling-belief {:state state
@@ -281,7 +310,7 @@
      (fn [{:keys [operation source desire rule]}]
        (if rule
          (let [[_ _ antecedent _] (:term rule)
-               precondition (antecedent->precondition antecedent)
+               precondition (term/precondition-term antecedent)
                antecedent-event (when precondition
                                   (get-in new-state [:concepts precondition :belief-spike]))
                precondition-term (when precondition
@@ -347,10 +376,12 @@
                    derived-lines (when print-derived?
                                    (seq (new-derived-lines state state')))
                    decision-lines (decision-lines state state')
+                   trace-output (trace-lines state')
                    lines (cond-> []
                             input-line (conj input-line)
                             derived-lines (into derived-lines)
-                            (seq decision-lines) (into decision-lines))]
+                            (seq decision-lines) (into decision-lines)
+                            (seq trace-output) (into trace-output))]
                {:state state'
                 :reply (if (seq lines)
                          (str/join "\n" lines)

@@ -81,6 +81,11 @@
         idx
         (recur (inc idx))))))
 
+(defn- strip-line-comment [s]
+  (if-let [idx (str/index-of s "//")]
+    (subs s 0 idx)
+    s))
+
 (defn- parse-sentence-line [line]
   (let [{:keys [dt rest]} (or (parse-dt line) {:rest line})
         trimmed (str/trim rest)
@@ -137,6 +142,12 @@
          :index (Integer/parseInt idx)
          :operation op})
 
+      (re-matches #"\*trace=(on|off)" trim)
+      (let [[_ mode] (re-matches #"\*trace=(on|off)" trim)]
+        {:kind :command
+         :command :trace
+         :value (= mode "on")})
+
       (re-matches #"\*cycling_belief_events" trim)
       {:kind :command :command :cycling-belief}
 
@@ -154,7 +165,8 @@
              :raw line})))
 
 (defn parse-line [line]
-  (let [trim (str/trim line)]
+  (let [without-comments (strip-line-comment (or line ""))
+        trim (str/trim without-comments)]
     (cond
       (str/blank? trim) nil
       (str/starts-with? trim "*") (parse-command-line trim)

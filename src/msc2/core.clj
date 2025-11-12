@@ -66,7 +66,8 @@
       :shell {:operations {}
               :print-derived? true
               :babbling-ops nil
-              :motor-babbling-default (:motor-babbling-prob config)}
+              :motor-babbling-default (:motor-babbling-prob config)
+              :trace? false}
       :history []})))
 
 (defn- op-event? [event]
@@ -86,26 +87,42 @@
        (not (op-event? later))
        (within-gap? earlier later gap)))
 
+(defn- combine-events [earlier later]
+  (let [{:keys [stamp creation-time]} (stamp/derive-stamp earlier later)
+        truth (truth/intersection (:truth earlier) (:truth later))]
+    {:type :belief
+     :term (term/seq-term (:term earlier) (:term later))
+     :truth truth
+     :stamp stamp
+     :creation-time creation-time
+     :occurrence-time (:occurrence-time earlier)}))
+
+(defn- extend-sequence [base base-idx events depth]
+  (when (< depth max-sequence-length)
+    (loop [idx (inc base-idx)
+           acc []]
+      (if (< idx (count events))
+        (let [next (events idx)]
+          (if (not= :belief (:type next))
+            acc
+            (let [seq-event (combine-events base next)
+                  extended (extend-sequence seq-event idx events (inc depth))]
+              (recur (inc idx)
+                     (into (conj acc seq-event) extended)))))
+        acc))))
+
 (defn- sequence-candidates [events]
   (let [limited (->> events (take-last max-sequence-length) vec)]
-    (for [[idx ev] (map-indexed vector limited)
-          :when (and (= :belief (:type ev))
-                     (not (op-event? ev)))
-          [idx2 op-ev] (map-indexed vector limited)
-          :when (and (> idx2 idx)
-                     (<= (- idx2 idx) (dec max-sequence-length))
-                     (= :belief (:type op-ev))
-                     (op-event? op-ev))
-          :when (every? (comp not op-event?)
-                        (subvec limited (inc idx) idx2))]
-      (let [{:keys [stamp creation-time]} (stamp/derive-stamp ev op-ev)
-            truth (truth/intersection (:truth ev) (:truth op-ev))]
-        {:type :belief
-         :term (term/seq-term (:term ev) (:term op-ev))
-         :truth truth
-         :stamp stamp
-         :creation-time creation-time
-         :occurrence-time (:occurrence-time op-ev)}))))
+    (loop [idx 0
+           acc []]
+      (if (< idx (count limited))
+        (let [ev (limited idx)]
+          (if (and (= :belief (:type ev))
+                   (not (op-event? ev)))
+            (recur (inc idx)
+                   (into acc (extend-sequence ev idx limited 1)))
+            (recur (inc idx) acc)))
+        acc))))
 
 (defn- sequence-derivations [fifo event gap]
   (let [prior (->> (butlast (or (seq (fifo/events fifo)) []))

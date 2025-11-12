@@ -59,6 +59,17 @@
   [term]
   (= :seq (first term)))
 
+(defn precondition-term
+  "Return the left-most non-sequence term inside an antecedent.
+
+  Used by decision making to determine which recent percept must be active for
+  a prediction rule to fire."
+  [term]
+  (cond
+    (nil? term) nil
+    (sequence? term) (precondition-term (second term))
+    :else term))
+
 (defn term->string
   "Serialize a term back to a Narsese string (subset, used for round-trips)."
   [term]
