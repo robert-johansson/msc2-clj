@@ -1,7 +1,9 @@
 (ns msc2.core-test
   (:require [clojure.test :refer [deftest is testing]]
             [msc2.core :as core]
-            [msc2.queue :as q]))
+            [msc2.fifo :as fifo]
+            [msc2.queue :as q]
+            [msc2.term :as term]))
 
 (defn- queue? [q]
   (map? q))
@@ -91,3 +93,49 @@
                               :term [:b]
                               :truth {:frequency 1.0 :confidence 0.9}}))]
     (is (seq (:subgoals state)))))
+
+(defn- belief-event
+  [term occ-time]
+  {:type :belief
+   :term term
+   :truth {:frequency 1.0 :confidence 0.9}
+   :stamp {:evidence [occ-time]}
+   :occurrence-time occ-time
+   :creation-time occ-time})
+
+(defn- enqueue-all
+  [events]
+  (reduce (fn [buf event]
+            (:fifo (fifo/enqueue buf event)))
+          (fifo/empty-buffer)
+          events))
+
+(deftest sequence-derivations-include-gapped-triples-ending-with-ops
+  (let [sample (belief-event (term/atom-term "sample") 1)
+        noise (belief-event (term/atom-term "noise") 2)
+        comparison (belief-event (term/atom-term "comparison") 3)
+        op (belief-event (term/op-term "^left") 4)
+        goal (belief-event (term/atom-term "G") 5)
+        fifo (enqueue-all [sample noise comparison op goal])
+        seq-impls (@#'msc2.core/sequence-derivations fifo goal 16)
+        antecedents (set (map #(get-in % [:term 2]) seq-impls))
+        target (term/seq-term
+                (term/seq-term (:term sample) (:term comparison))
+                (:term op))]
+    (is (contains? antecedents target))
+    (is (seq seq-impls))))
+
+(deftest sequence-derivations-reject-internal-operations
+  (let [old-op (belief-event (term/op-term "^prep") 1)
+        sample (belief-event (term/atom-term "sample") 2)
+        comparison (belief-event (term/atom-term "comparison") 3)
+        op (belief-event (term/op-term "^left") 4)
+        goal (belief-event (term/atom-term "G") 5)
+        fifo (enqueue-all [old-op sample comparison op goal])
+        seq-impls (@#'msc2.core/sequence-derivations fifo goal 16)
+        antecedents (set (map #(get-in % [:term 2]) seq-impls))
+        forbidden (term/seq-term
+                   (term/seq-term (:term old-op) (:term sample))
+                   (:term op))]
+    (is (not (contains? antecedents forbidden)))
+    (is (seq seq-impls))))

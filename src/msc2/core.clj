@@ -97,32 +97,54 @@
      :creation-time creation-time
      :occurrence-time (:occurrence-time earlier)}))
 
-(defn- extend-sequence [base base-idx events depth]
-  (when (< depth max-sequence-length)
-    (loop [idx (inc base-idx)
-           acc []]
-      (if (< idx (count events))
-        (let [next (events idx)]
-          (if (not= :belief (:type next))
-            acc
-            (let [seq-event (combine-events base next)
-                  extended (extend-sequence seq-event idx events (inc depth))]
-              (recur (inc idx)
-                     (into (conj acc seq-event) extended)))))
-        acc))))
+(defn- belief-event? [event]
+  (= :belief (:type event)))
+
+(defn- state-offsets
+  "Return offsets (relative to the newest component) for a given bitmask state."
+  [state]
+  (loop [bits state
+         idx 0
+         acc []]
+    (if (zero? bits)
+      acc
+      (recur (unsigned-bit-shift-right bits 1)
+             (inc idx)
+             (if (odd? bits)
+               (conj acc idx)
+               acc)))))
+
+(def ^:private sequence-patterns
+  (let [limit (bit-shift-left 1 max-sequence-length)]
+    (->> (range 3 limit)
+         (filter odd?)
+         (keep (fn [state]
+                 (let [offsets (state-offsets state)]
+                   (when (seq offsets)
+                     {:offsets (sort > offsets)
+                      :max-offset (apply max offsets)}))))
+         vec)))
+
+(defn- sequence-from-pattern [events base-idx {:keys [offsets max-offset]}]
+  (let [max-idx (+ base-idx max-offset)
+        event-count (count events)]
+    (when (< max-idx event-count)
+      (let [selected (map #(nth events (+ base-idx %)) offsets)]
+        (when (and (every? belief-event? selected)
+                   (every? (complement op-event?) (butlast selected)))
+          (reduce combine-events selected))))))
 
 (defn- sequence-candidates [events]
-  (let [limited (->> events (take-last max-sequence-length) vec)]
-    (loop [idx 0
-           acc []]
-      (if (< idx (count limited))
-        (let [ev (limited idx)]
-          (if (and (= :belief (:type ev))
-                   (not (op-event? ev)))
-            (recur (inc idx)
-                   (into acc (extend-sequence ev idx limited 1)))
-            (recur (inc idx) acc)))
-        acc))))
+  (let [recent (vec (reverse events))
+        event-count (count recent)]
+    (->> (for [base-idx (range event-count)
+               :let [base (nth recent base-idx)]
+               :when (belief-event? base)
+               pattern sequence-patterns
+               :let [seq-event (sequence-from-pattern recent base-idx pattern)]
+               :when seq-event]
+           seq-event)
+         distinct)))
 
 (defn- sequence-derivations [fifo event gap]
   (let [prior (->> (butlast (or (seq (fifo/events fifo)) []))
