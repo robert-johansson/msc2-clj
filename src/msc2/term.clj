@@ -67,7 +67,19 @@
   [term]
   (cond
     (nil? term) nil
-    (sequence? term) (precondition-term (second term))
+    (op? term) nil
+    (sequence? term)
+    (let [parts (rest term)
+          without-op (if (and (seq parts) (op? (last parts)))
+                       (butlast parts)
+                       parts)
+          trimmed (->> without-op
+                       (map precondition-term)
+                       (remove nil?))]
+      (case (count trimmed)
+        0 nil
+        1 (first trimmed)
+        (into [:seq] trimmed)))
     :else term))
 
 (defn term->string
