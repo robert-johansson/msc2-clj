@@ -117,13 +117,13 @@
         op (belief-event (term/op-term "^left") 4)
         goal (belief-event (term/atom-term "G") 5)
         fifo (enqueue-all [sample noise comparison op goal])
-        seq-impls (@#'msc2.core/sequence-derivations fifo goal 16)
-        antecedents (set (map #(get-in % [:term 2]) seq-impls))
+        {:keys [implications]} (@#'msc2.core/sequence-derivations fifo goal 16)
+        antecedents (set (map #(get-in % [:term 2]) implications))
         target (term/seq-term
                 (term/seq-term (:term sample) (:term comparison))
                 (:term op))]
     (is (contains? antecedents target))
-    (is (seq seq-impls))))
+    (is (seq implications))))
 
 (deftest sequence-derivations-reject-internal-operations
   (let [old-op (belief-event (term/op-term "^prep") 1)
@@ -139,3 +139,19 @@
                    (:term op))]
     (is (not (contains? antecedents forbidden)))
     (is (seq seq-impls))))
+
+(deftest sequence-spikes-are-recorded
+  (let [state (-> (core/initial-state)
+                  (core/step {:type :belief
+                              :term (term/atom-term "A1")
+                              :truth {:frequency 1.0 :confidence 0.9}})
+                  (core/step {:type :belief
+                              :term (term/atom-term "B1")
+                              :truth {:frequency 1.0 :confidence 0.9}})
+                  (core/step {:type :belief
+                              :term (term/op-term "^op")
+                              :truth {:frequency 1.0 :confidence 0.9}}))
+        seq-term [:seq [:atom "A1"] [:atom "B1"]]
+        spike (get-in state [:concepts seq-term :belief-spike])]
+    (is (some? spike))
+    (is (= seq-term (:term spike)))))

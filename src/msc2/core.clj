@@ -150,9 +150,14 @@
   (let [prior (->> (butlast (or (seq (fifo/events fifo)) []))
                    (filter #(within-gap? % event gap))
                    vec)
-        seq-events (sequence-candidates prior)]
-    (map #(inference/belief-induction % event)
-         (filter #(within-gap? % event gap) seq-events))))
+        seq-events (sequence-candidates prior)
+        seq-in-gap (filter #(within-gap? % event gap) seq-events)]
+    {:sequence-events seq-in-gap
+     :concept-events seq-events
+     :implications (map #(inference/belief-induction % event) seq-in-gap)}))
+
+(defn- record-sequence-spikes [state seq-events]
+  (reduce (fn [s ev] (memory/record-spike s ev)) state seq-events))
 
 (defn- term-has-operation? [term]
   (cond
@@ -305,12 +310,13 @@
         {:keys [fifo pairs]} (fifo/enqueue (:fifo state) event)
         valid-pairs (filter #(valid-induction-pair? % gap) pairs)
         derivations (map #(apply inference/belief-induction %) valid-pairs)
-        seq-derivations (sequence-derivations fifo event gap)
-        all-derivations (seq (concat derivations seq-derivations))]
+        {:keys [sequence-events concept-events implications]} (sequence-derivations fifo event gap)
+        all-derivations (seq (concat derivations implications))]
     (-> state
         (assoc :fifo fifo)
         (update-in [:queues :belief] q/enqueue event)
         (memory/record-spike event)
+        (record-sequence-spikes concept-events)
         (update :history conj {:time (:time state)
                                :stage :fifo/enqueue
                                :input (:term event)})
